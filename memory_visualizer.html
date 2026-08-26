@@ -318,7 +318,7 @@
   <span id="status">就绪</span>
 </header>
 <div id="guideBar">
-  👋 欢迎使用!建议先按<b style="color:var(--accent)">「单步」</b>逐行观察内存变化,再点<b style="color:var(--accent)">「▶ 开始运行」</b>自动播放;右侧三个面板会同步显示栈、堆和具象视图。
+  👋 欢迎使用!建议先按<b style="color:var(--accent)">「单步」</b>逐行观察内存变化,再点<b style="color:var(--accent)">「▶ 开始运行」</b>自动播放;右侧三个面板会同步显示栈、堆和具象视图。快捷键:<b style="color:var(--accent)">空格</b>=播放/暂停 · <b style="color:var(--accent)">F10</b>=单步 · <b style="color:var(--accent)">R</b>=重置 · <b style="color:var(--accent)">Esc</b>=关闭弹窗
   <button id="guideClose">知道了 ✕</button>
 </div>
 <div id="errToast"></div>
@@ -427,6 +427,11 @@
  *   'end' → 结束
  * 标签写在步骤的 tag 字段上。
  * ============================================================ */
+
+/* HTML转义:所有动态数据值进innerHTML前必须经过它,防用户代码里的字符串字面量注入 */
+function esc(v){
+  return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 
 const PROGRAMS = {
 
@@ -1481,8 +1486,8 @@ function renderStack(){
   (M.stack||[]).forEach(v=>{
     const d=document.createElement('div');
     d.className='var-box'+(v.type==='int'?' int-var':'');
-    const shown=v.val==='NULL'?'<span class="nullv">NULL</span>':v.val;
-    d.innerHTML=`<span class="var-name">${v.name}</span><span class="var-type">${v.type}</span><div class="var-val">${shown}</div>`;
+    const shown=v.val==='NULL'?'<span class="nullv">NULL</span>':esc(v.val);
+    d.innerHTML=`<span class="var-name">${esc(v.name)}</span><span class="var-type">${esc(v.type)}</span><div class="var-val">${shown}</div>`;
     d.dataset.vn=v.name;
     sv.appendChild(d);
   });
@@ -1504,8 +1509,8 @@ function renderHeap(){
     const box=document.createElement('div');
     box.className='heap-node';box.style.left=x+'px';box.style.top=y+'px';
     box.id='hb-'+addr.slice(2);
-    const nx=n.next==='NULL'?'<span class="nullv">NULL</span>':n.next.slice(2);
-    box.innerHTML=`<div class="cell data">${n.data??'?'}</div><div class="cell next">${nx}</div>`;
+    const nx=n.next==='NULL'?'<span class="nullv">NULL</span>':esc(n.next.slice(2));
+    box.innerHTML=`<div class="cell data">${esc(n.data??'?')}</div><div class="cell next">${nx}</div>`;
     hb.appendChild(box);
     const lab=document.createElement('div');
     lab.className='heap-addr';lab.textContent=addr;
@@ -1551,7 +1556,7 @@ function renderLinkViz(va){
     d.className='vnode';d.style.left=x+'px';d.style.top=y+'px';
     d.id='vb-'+addr.slice(2);
     const nxHtml=n.next==='NULL'?'<span class="nullv">∅</span>':'•';
-    d.innerHTML=`<div class="vd">${n.data??'?'}</div><div class="vn">${nxHtml}</div>`;
+    d.innerHTML=`<div class="vd">${esc(n.data??'?')}</div><div class="vn">${nxHtml}</div>`;
     va.appendChild(d);
     if(i<order.length-1){ // 盒子之间的箭头
       drawVA(x+76,y+18,x+112,y+18,'next');
@@ -1587,7 +1592,7 @@ function renderSeqViz(va){
     slot.className='slot'+((M.arr[i]===null)?' empty':'');
     slot.id='sl-'+i;
     slot.style.left=x+'px';slot.style.top=y+'px';
-    slot.innerHTML=`<span class="idx">[${i}]</span>${M.arr[i]===null?'':M.arr[i]}`;
+    slot.innerHTML=`<span class="idx">[${i}]</span>${M.arr[i]===null?'':esc(M.arr[i])}`;
     if(M.flashSlot===i)slot.classList.add('flash-y');
     va.appendChild(slot);
   }
@@ -1679,6 +1684,22 @@ document.getElementById('playBtn').onclick=()=>timer?pause():play();
 stepBtn.onclick=()=>{if(timer)return;if(!stepOnce())setStatus('🎉 已结束,可点「↻ 重新运行」或切换程序',true);};
 document.getElementById('resetBtn').onclick=()=>{pause();resetRun();setStatus('⟲ 已重置,按「▶ 开始运行」或「单步」开始');};
 document.getElementById('speed').oninput=()=>{if(timer){pause();play();}};
+
+/* ===== 键盘快捷键:空格=播放/暂停, F10/回车=单步, R=重置, Esc=关弹窗 ===== */
+document.addEventListener('keydown',e=>{
+  const t=e.target;
+  if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT'||t.isContentEditable))return;
+  if(e.key==='Escape'){
+    if(document.getElementById('editorOverlay').classList.contains('open'))closeEditor();
+    else if(vizPopOpen)toggleVizPop(false);
+    else ctx.style.display='none';
+    return;
+  }
+  if(document.getElementById('editorOverlay').classList.contains('open'))return; // 编辑器内不干扰输入
+  if(e.key===' '){e.preventDefault();timer?pause():play();}
+  else if(e.key==='F10'||e.key==='s'||e.key==='S'){e.preventDefault();if(!timer)stepBtn.click();}
+  else if(e.key==='r'||e.key==='R'){e.preventDefault();document.getElementById('resetBtn').click();}
+});
 document.getElementById('progSel').onchange=e=>{pause();loadProgram(e.target.value);};
 document.getElementById('renameBtn').onclick=renameCurrent;
 document.getElementById('delBtn').onclick=deleteCurrent;
@@ -1820,7 +1841,7 @@ function renderVizPop(){
     if(M.flashHeap===addr)box.classList.add('pv-hot');
     const addrTxt=addr;
     const nxShow=n.next==='NULL'?'<span style="color:var(--red)">⌀</span>':'•';
-    box.innerHTML=`<div class="pv-d">${n.data??'?'}</div><div class="pv-a">${addrTxt}<br><span style="color:#bc8cff">${nxShow}</span></div>`;
+    box.innerHTML=`<div class="pv-d">${esc(n.data??'?')}</div><div class="pv-a">${esc(addrTxt)}<br><span style="color:#bc8cff">${nxShow}</span></div>`;
     body.appendChild(box);
     if(i<order.length-1){
       drawPopArrow(svg,x+W,y+H/2,x+W+GAP,y+H/2,'next');
@@ -1857,7 +1878,7 @@ function renderPopSeq(body){
     d.style.width='64px';d.style.height='52px';
     d.style.alignItems='center';d.style.justifyContent='center';
     if(M.arr[i]===null){d.style.borderStyle='dashed';d.style.borderColor='var(--border)';}
-    else{d.innerHTML=`<div class="pv-d" style="border:none">${M.arr[i]}</div>`;d.id='pvs-'+i;}
+    else{d.innerHTML=`<div class="pv-d" style="border:none">${esc(M.arr[i])}</div>`;d.id='pvs-'+i;}
     if(M.flashSlot===i)d.classList.add('pv-hot');
     body.appendChild(d);
     const idx=document.createElement('div');
