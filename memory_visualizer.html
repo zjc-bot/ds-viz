@@ -118,8 +118,11 @@
   .ln{width:30px;text-align:right;margin-right:12px;color:#484f58;user-select:none;flex-shrink:0}
   .kw{color:#ff7b72}.type{color:var(--purple)}.num{color:#79c0ff}.cm{color:#57ab5a}.str{color:#a5d6ff}.fn{color:var(--yellow)}
 
+  /* 水平拖动条(代码区/控制台之间) */
+  .hdrag{height:6px;cursor:row-resize;background:transparent;border-top:1px solid var(--border);flex-shrink:0;transition:background .15s}
+  .hdrag:hover,.hdrag.on{background:var(--accent)}
   #console{
-    height:86px;border-top:1px solid var(--border);padding:6px 14px;
+    height:86px;border-top:none;padding:6px 14px;
     font-family:var(--mono);font-size:13px;overflow:auto;color:var(--green);
     background:rgba(13,17,23,.6);
   }
@@ -388,6 +391,7 @@
     </div>
     <div class="pane-title" id="fileTitle">📄 demo.c</div>
     <div id="codeScroll"></div>
+    <div class="hdrag" id="dragConsole"></div>
     <div id="console"><div style="color:var(--muted)">── 程序输出 ──</div></div>
   </div>
   <div class="vdrag" id="dragCode"></div>
@@ -1789,6 +1793,31 @@ makeVDrag('drag0',
 makeVDrag('drag1',
   ()=>document.getElementById('vizCol'),
   (t,dx)=>{setW(t,-dx);});          // 该条在具象区左缘:右拖=具象区变窄(条跟随鼠标)
+
+/* 水平拖动条:代码区 ↔ 程序输出(条跟随鼠标,上拖=代码区变矮输出变高) */
+function makeHDrag(handle){
+  const el=document.getElementById(handle);
+  el.addEventListener('mousedown',e=>{
+    e.preventDefault();
+    el.classList.add('on');
+    let startY=e.clientY;
+    const cs=document.getElementById('codeScroll'),co=document.getElementById('console');
+    function move(ev){
+      const dy=ev.clientY-startY;startY=ev.clientY;
+      let ch=cs.getBoundingClientRect().height+dy;
+      const total=cs.parentElement.getBoundingClientRect().height-120;
+      ch=Math.max(60,Math.min(ch,total));
+      cs.style.flex='none';cs.style.height=ch+'px';
+      co.style.height=Math.max(40,total-ch)+'px';
+    }
+    function up(){el.classList.remove('on');
+      document.removeEventListener('mousemove',move);
+      document.removeEventListener('mouseup',up);}
+    document.addEventListener('mousemove',move);
+    document.addEventListener('mouseup',up);
+  });
+}
+makeHDrag('dragConsole');
 
 
 /* ============================================================
