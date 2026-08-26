@@ -1058,8 +1058,17 @@ function execUserStep(M,pc,progObj){
       case 'blockEnd':{
         const top=it.ownerLoop;
         if(top&&(top.type==='forHead'||top.type==='whileHead')){
-          /* for的自增 */
-          if(top.type==='forHead'&&top.step)doAssign(top.step.replace(/\+\+/,'+=1').replace(/--/,'-=1'),M);
+          /* for的自增:i++ → 先走bumpVar专用路径 */
+          if(top.type==='forHead'&&top.step){
+            const st=top.step.trim();
+            const bm=st.match(/^(\w+)\+\+$/)||st.match(/^\+\+(\w+)$/);
+            if(bm)bumpVar(bm[1],1,M);
+            else{
+              const dm=st.match(/^(\w+)--$/);
+              if(dm)bumpVar(dm[1],-1,M);
+              else doAssign(st,M);
+            }
+          }
           /* 回到循环头重新判断:直接跳,不占步骤 */
           progObj._ip=top.loopId;
           continue;
@@ -1188,13 +1197,19 @@ function storePath(path,val,M){
       else if(am[1]==='L'&&M.arr){M.arr[idx]=val;}   // 顺序表具象兼容
       return;
     }
-    const v=M.vars[name];
+    let v=M.vars[name];
+    if(!v && /^\w+$/.test(name) && !M.heap[name]){
+      /* 未声明的变量自动按int创建(如 for(i=1;...) 的i),并在栈区生成框 */
+      M.vars[name]={kind:'int',val:0};
+      M.stack.push({name,type:'int',val:0});
+      v=M.vars[name];
+    }
     if(v){
       if(v.kind==='ptr')v.val=(val===null?'NULL':val);
       else v.val=val;
     }
     const sv=M.stack.find(x=>x.name===name);
-    if(sv)sv.val=(val===null?'NULL':val);
+    if(sv)sv.val=(val===null||val===undefined)?'NULL':val;
     return;
   }
   /* 多级:base.seg1.seg2... 最后一段是写入目标 */
