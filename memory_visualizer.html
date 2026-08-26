@@ -1,0 +1,1975 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>C语言内存可视化调试器 · 双结构版</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --border:#30363d;
+    --fg:#e6edf3; --muted:#9aa4b2;
+    --accent:#58a6ff; --green:#3fb950; --red:#f85149;
+    --yellow:#d29922; --purple:#bc8cff; --orange:#f0883e;
+    --hl:rgba(88,166,255,.25);
+    --card-bg:#161d27; --card-border:#2a3441;
+    --shadow:0 4px 16px rgba(0,0,0,.35);
+    --mono:'Cascadia Code','Consolas',monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--fg);font-family:'Microsoft YaHei','Segoe UI',sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+  /* ===== 渐变顶栏 ===== */
+  header{
+    padding:10px 18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    background:linear-gradient(135deg,#16202f 0%,#101724 55%,#141b2b 100%);
+    border-bottom:1px solid var(--border);
+    box-shadow:0 2px 12px rgba(0,0,0,.45);
+  }
+  header h1{font-size:16px;font-weight:700;letter-spacing:.5px;background:linear-gradient(90deg,#79c0ff,#bc8cff);-webkit-background-clip:text;background-clip:text;color:transparent}
+
+  .btn{
+    background:linear-gradient(180deg,#1c2431,#171e29);
+    border:1px solid var(--card-border);color:var(--fg);
+    padding:6px 15px;border-radius:8px;cursor:pointer;font-size:13px;
+    transition:border-color .18s,color .18s,transform .12s,box-shadow .18s;
+  }
+  .btn:hover{border-color:var(--accent);color:var(--accent);box-shadow:0 2px 10px rgba(88,166,255,.25)}
+  .btn:active{transform:scale(.96)}
+  .btn.primary{background:linear-gradient(180deg,#2a7ef0,#1f5fd0);border-color:#1f6feb;color:#fff}
+  .btn.primary:hover{box-shadow:0 3px 14px rgba(31,111,235,.5);color:#fff}
+  .btn.danger:hover{border-color:var(--red);color:var(--red);box-shadow:0 2px 10px rgba(248,81,73,.25)}
+
+  /* 下拉菜单(新建模板) */
+  .dropdown{position:relative;display:inline-block}
+  .menu{
+    display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:50;
+    min-width:230px;background:var(--panel);border:1px solid var(--card-border);
+    border-radius:10px;box-shadow:var(--shadow);padding:6px;overflow:hidden;
+  }
+  .dropdown.open .menu{display:block}
+  .menu .mi{
+    padding:8px 12px;border-radius:7px;cursor:pointer;font-size:13px;
+    transition:background .15s;
+  }
+  .menu .mi:hover{background:rgba(88,166,255,.14);color:var(--accent)}
+  .menu .mi small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+
+  select{
+    background:var(--panel);color:var(--fg);border:1px solid var(--card-border);
+    border-radius:8px;padding:6px 9px;font-size:13px;max-width:260px;cursor:pointer;
+    transition:border-color .18s;
+  }
+  select:hover{border-color:var(--accent)}
+  #speed{width:80px;direction:rtl;vertical-align:middle}
+  #status{font-size:13px;color:var(--muted)}
+  #status.done{color:#3fb950;font-weight:700;font-size:14px}
+  /* 引导条 */
+  #guideBar{
+    display:flex;align-items:center;gap:10px;padding:7px 18px;font-size:13px;color:var(--fg);
+    background:linear-gradient(90deg,rgba(88,166,255,.14),rgba(188,140,255,.10));
+    border-bottom:1px solid var(--border);
+  }
+  #guideBar button{margin-left:auto;background:none;border:1px solid var(--border);border-radius:6px;
+    color:var(--muted);cursor:pointer;padding:2px 8px;font-size:12px}
+  #guideBar button:hover{color:var(--fg);border-color:var(--accent)}
+  body.demo-mode{font-size:16px}
+  body.demo-mode .code-line{font-size:15px}
+  body.demo-mode .btn,body.demo-mode select{font-size:15px}
+  body.demo-mode .heap-node{font-size:14px}
+  body.demo-mode .vnode .vn,body.demo-mode .slot .idx,body.demo-mode .heap-addr{font-size:13px}
+  /* toast 错误浮层 */
+  #errToast{
+    position:fixed;top:70px;left:50%;transform:translateX(-50%);z-index:999;display:none;
+    background:#3a1414;border:1.5px solid var(--red);color:#ffb0ab;padding:12px 22px;
+    border-radius:10px;font-size:14px;box-shadow:0 6px 24px rgba(248,81,73,.35);max-width:70vw;
+  }
+  /* 图例 */
+  #legend{
+    position:absolute;top:8px;right:12px;z-index:20;font-size:12px;color:var(--fg);
+    background:rgba(13,17,23,.85);border:1px solid var(--border);border-radius:8px;
+    padding:5px 10px;display:flex;gap:12px;pointer-events:none;
+  }
+  #legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+  .console-line.flash{animation:cflash .9s}
+  @keyframes cflash{0%{background:rgba(63,185,80,.45);transform:scale(1.04)}100%{background:transparent}}
+
+  main{flex:1;display:flex;overflow:hidden}
+
+  /* ===== 左侧代码 ===== */
+  #codePane{width:34%;min-width:360px;border-right:1px solid var(--border);display:flex;flex-direction:column;background:rgba(22,29,39,.35)}
+  /* 代码区工具栏(新建/重命名/删除) */
+  #codeToolbar{
+    display:flex;align-items:center;gap:8px;padding:7px 12px;
+    border-bottom:1px solid var(--border);background:rgba(13,17,23,.5);
+  }
+  #codeToolbar .spacer{flex:1}
+  /* macOS 三圆点装饰 */
+  .pane-title{
+    padding:7px 14px 7px 76px;font-size:12.5px;color:var(--muted);
+    border-bottom:1px solid var(--border);position:relative;user-select:none;
+  }
+  .pane-title::before{
+    content:'';position:absolute;left:14px;top:50%;transform:translateY(-50%);
+    width:11px;height:11px;border-radius:50%;
+    background:#ff5f57;box-shadow:17px 0 0 #febc2e,34px 0 0 #28c840;
+  }
+  #codeScroll{flex:1;overflow:auto;padding:6px 0}
+  .code-line{display:flex;font-family:var(--mono);font-size:13px;line-height:1.65;padding:0 10px;border-radius:4px}
+  .code-line.active{background:var(--hl);outline:1px solid var(--accent)}
+  .ln{width:30px;text-align:right;margin-right:12px;color:#484f58;user-select:none;flex-shrink:0}
+  .kw{color:#ff7b72}.type{color:var(--purple)}.num{color:#79c0ff}.cm{color:#57ab5a}.str{color:#a5d6ff}.fn{color:var(--yellow)}
+
+  #console{
+    height:86px;border-top:1px solid var(--border);padding:6px 14px;
+    font-family:var(--mono);font-size:13px;overflow:auto;color:var(--green);
+    background:rgba(13,17,23,.6);
+  }
+
+  /* ===== 右侧三栏 ===== */
+  #rightPane{flex:1;display:flex;flex-direction:column;overflow:hidden}
+  #memRow{flex:1;display:flex;min-height:0}
+  .col{display:flex;flex-direction:column;padding:10px 12px;overflow:auto}
+  #stackCol,#heapCol,#vizCol{position:relative}  /* 让内部SVG箭头层以本栏为定位基准 */
+  /* 可拖拽分隔条 */
+  .vdrag{width:6px;cursor:col-resize;background:transparent;border-left:1px solid var(--border);flex-shrink:0;transition:background .15s}
+  .vdrag:hover,.vdrag.on{background:var(--accent)}
+  .col h2{
+    font-size:13px;font-weight:600;letter-spacing:.4px;color:var(--muted);
+    padding-bottom:6px;border-bottom:1px dashed var(--border);margin-bottom:10px;white-space:nowrap;
+  }
+  #stackCol{width:34%;border-right:1px solid var(--border)}
+  #heapCol{flex:1;border-right:1px solid var(--border)}
+
+  /* 变量框:更柔和配色 + 卡片感 */
+  .var-box{
+    background:linear-gradient(180deg,#1b2431,#18202c);
+    border:1px solid rgba(88,166,255,.55);border-left:3px solid var(--accent);
+    border-radius:9px;padding:6px 11px;margin-bottom:9px;width:184px;
+    font-family:var(--mono);font-size:12.5px;box-shadow:var(--shadow);
+    transition:box-shadow .2s,border-color .2s;
+  }
+  .var-box:hover{border-color:var(--accent)}
+  .var-box.int-var{border-color:rgba(63,185,80,.55);border-left-color:var(--green)}
+  .var-name{color:var(--accent)} .int-var .var-name{color:var(--green)}
+  .var-type{color:var(--muted);font-size:13px;margin-left:6px}
+  .var-val{margin-top:2px}
+  .nullv{color:var(--red)}
+
+  #heapBlocks{position:relative;flex:1}
+  /* 堆内存块:柔和黄边 + 轻投影 */
+  .heap-node{
+    position:absolute;display:flex;border:2px solid rgba(210,153,34,.75);
+    border-radius:8px;overflow:hidden;background:linear-gradient(180deg,#20283a,#1b2231);
+    font-family:var(--mono);font-size:12px;z-index:2;box-shadow:0 3px 10px rgba(0,0,0,.4);
+    transition:border-color .2s;
+  }
+  .heap-node:hover{border-color:var(--yellow)}
+  .heap-node .cell{padding:4px 11px;text-align:center}
+  .heap-node .cell.data{color:#79c0ff;border-right:1px solid var(--border);min-width:42px}
+  .heap-node .cell.next{color:var(--purple);min-width:64px}
+  .heap-addr{position:absolute;font-size:13px;color:var(--muted);font-family:var(--mono);z-index:2}
+  .flash-y{animation:fy .6s}.flash-b{animation:fb .6s}
+  @keyframes fy{0%{box-shadow:0 0 0 4px rgba(210,153,34,.75)}100%{box-shadow:none}}
+  @keyframes fb{0%{box-shadow:0 0 0 4px rgba(88,166,255,.75)}100%{box-shadow:none}}
+  svg.arrows{position:absolute;inset:0;pointer-events:none;z-index:4}
+  svg.arrows path{stroke:var(--purple);stroke-width:2;fill:none}
+  svg.arrows polygon{fill:var(--purple)}
+  svg.arrows text{fill:var(--orange);font-size:11px;font-family:var(--mono)}
+
+  /* ===== 具象化视图 ===== */
+  #vizCol{width:36%;min-width:300px}
+  #vizArea{position:relative;flex:1;font-family:var(--mono);overflow-x:auto;overflow-y:hidden}
+  .viz-note{font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:8px}
+  /* 链表具象:一串盒子(轻投影) */
+  .vnode{
+    position:absolute;display:flex;border:2px solid rgba(210,153,34,.75);border-radius:9px;
+    background:linear-gradient(180deg,#20283a,#1b2231);font-size:13px;z-index:2;
+    box-shadow:0 4px 12px rgba(0,0,0,.45);transition:box-shadow .2s,border-color .2s;
+  }
+  .vnode:hover{box-shadow:0 6px 18px rgba(0,0,0,.6)}
+  .vnode .vd{padding:8px 14px;color:#79c0ff;border-right:2px dashed var(--border)}
+  .vnode .vn{padding:8px 14px;color:var(--purple);font-size:13px}
+  .vlabel{
+    position:absolute;color:var(--accent);font-size:12px;background:var(--bg);
+    padding:1px 7px;border:1px solid var(--accent);border-radius:10px;z-index:3;
+    box-shadow:0 2px 6px rgba(0,0,0,.4);
+  }
+  .vlabel.p-label{color:var(--green);border-color:var(--green)}
+  /* ===== 右键管理菜单 ===== */
+  #ctxMenu{
+    position:fixed;z-index:1200;display:none;min-width:180px;
+    background:#161b22;border:1px solid var(--border);border-radius:10px;
+    box-shadow:0 12px 40px rgba(0,0,0,.55);padding:5px;font-size:13px;
+  }
+  #ctxMenu .ci{
+    padding:8px 14px;border-radius:6px;cursor:pointer;color:var(--fg);
+    display:flex;align-items:center;gap:8px;
+  }
+  #ctxMenu .ci:hover{background:rgba(88,166,255,.15)}
+  #ctxMenu .ci.danger{color:var(--red)}
+  #ctxMenu .ci.danger:hover{background:rgba(248,81,73,.15)}
+  #ctxMenu .ci.disabled{color:#484f58;cursor:not-allowed}
+  #ctxMenu .ci.disabled:hover{background:none}
+  #ctxMenu .sep{height:1px;background:var(--border);margin:4px 8px}
+  #ctxMenu .ctitle{padding:6px 14px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border);margin-bottom:4px;white-space:nowrap}
+  /* ===== 具象化视图浮动弹窗(可拖动) ===== */
+  #vizPop{
+    position:fixed;z-index:900;display:none;flex-direction:column;
+    width:min(720px,80vw);height:min(480px,70vh);
+    background:linear-gradient(180deg,#141a24,#101620);
+    border:1px solid rgba(88,166,255,.4);border-radius:14px;
+    box-shadow:0 24px 80px rgba(0,0,0,.65),0 0 0 1px rgba(255,255,255,.03) inset;
+    overflow:hidden;backdrop-filter:blur(6px);
+  }
+  #vizPop.open{display:flex;animation:vpopin .25s ease-out}
+  @keyframes vpopin{from{opacity:0;transform:scale(.92) translateY(12px)}to{opacity:1;transform:none}}
+  #vizPopBar{
+    display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:move;user-select:none;
+    background:linear-gradient(90deg,rgba(88,166,255,.18),rgba(188,140,255,.12));
+    border-bottom:1px solid var(--border);
+  }
+  #vizPopBar b{font-size:13.5px}
+  #vizPopBar .sp{flex:1}
+  #vizPopBar button{background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);
+    cursor:pointer;padding:2px 9px;font-size:12px}
+  #vizPopBar button:hover{color:var(--fg);border-color:var(--accent)}
+  #vizPopBody{position:relative;flex:1;overflow:auto}
+  #vizPopSvg{position:absolute;inset:0;pointer-events:none;z-index:5}
+  #vizPopSvg path{stroke:var(--purple);stroke-width:2.2;fill:none;filter:drop-shadow(0 0 3px rgba(188,140,255,.45))}
+  #vizPopSvg polygon{fill:var(--purple)}
+  #vizPopSvg text{fill:#ffd28a;font-size:12px;font-family:var(--mono)}
+  /* 弹窗内简洁节点:方框+数字/地址 */
+  .pv-node{
+    position:absolute;display:flex;border:2px solid rgba(210,153,34,.8);border-radius:8px;
+    background:linear-gradient(180deg,#1e2735,#19202d);overflow:hidden;z-index:2;
+    font-family:var(--mono);box-shadow:0 4px 14px rgba(0,0,0,.5);
+    transition:border-color .25s, transform .15s;
+  }
+  .pv-node:hover{transform:translateY(-2px)}
+  .pv-node.pv-hot{border-color:#ffd28a;box-shadow:0 0 14px rgba(255,210,138,.35)}
+  .pv-node .pv-d{padding:9px 16px;color:#79c0ff;font-size:16px;border-right:1.5px dashed rgba(255,255,255,.12)}
+  .pv-node .pv-a{padding:9px 10px;color:var(--muted);font-size:11px}
+  .pv-null{position:absolute;color:var(--red);font-size:13px;z-index:2;font-family:var(--mono)}
+  .pv-ptr{position:absolute;color:#ffd28a;font-size:12px;font-family:var(--mono);z-index:3;
+    background:rgba(13,17,23,.85);border:1px solid rgba(255,210,138,.5);border-radius:9px;padding:1px 8px}
+  .pv-note{position:absolute;left:14px;top:10px;right:14px;color:var(--muted);font-size:12.5px;line-height:1.7;z-index:1}
+  /* 顶栏具象化按钮高亮态 */
+  #vizBtn.active{border-color:var(--accent);color:var(--accent);box-shadow:0 0 10px rgba(88,166,255,.35)}
+  /* ===== VS Code 式代码编辑器弹层 ===== */
+  #editorOverlay{
+    position:fixed;inset:0;z-index:1000;display:none;
+    background:rgba(1,4,9,.72);backdrop-filter:blur(3px);
+    align-items:center;justify-content:center;
+  }
+  #editorOverlay.open{display:flex}
+  #editorBox{
+    width:min(1100px,88vw);height:min(720px,86vh);display:flex;flex-direction:column;
+    background:#0f141c;border:1px solid var(--border);border-radius:14px;
+    box-shadow:0 24px 80px rgba(0,0,0,.6);overflow:hidden;
+  }
+  #edHead{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);background:#131a24}
+  #edHead b{font-size:14px}
+  #edName{background:#0d1117;border:1px solid var(--border);color:var(--fg);border-radius:6px;padding:4px 10px;font-size:13px;width:180px}
+  #edBody{flex:1;display:flex;min-height:0}
+  #edCode{
+    flex:1;background:#0d1117;color:#e6edf3;border:none;outline:none;resize:none;
+    font-family:var(--mono);font-size:13.5px;line-height:1.7;padding:14px 16px;
+    white-space:pre;tab-size:4;
+  }
+  #edHelp{width:270px;border-left:1px solid var(--border);padding:14px;font-size:13px;color:var(--muted);line-height:1.9;overflow:auto}
+  #edHelp h4{color:var(--fg);font-size:13px;margin-bottom:6px}
+  #edHelp code{color:var(--yellow);font-family:var(--mono)}
+  #edCheck{padding:8px 16px;border-top:1px solid var(--border);font-size:13px;font-family:var(--mono);min-height:34px}
+  #edCheck.ok{color:var(--green)} #edCheck.bad{color:var(--red)}
+  #edFoot{display:flex;gap:10px;justify-content:flex-end;padding:10px 16px;border-top:1px solid var(--border);background:#131a24}
+  /* 顺序表具象:格子阵列 */
+  .slot{
+    position:absolute;width:52px;height:44px;border:2px solid rgba(63,185,80,.7);border-radius:8px;
+    background:linear-gradient(180deg,#1b2a22,#17221c);display:flex;align-items:center;
+    justify-content:center;font-size:15px;color:#79c0ff;z-index:2;box-shadow:0 3px 9px rgba(0,0,0,.35);
+  }
+  .slot.empty{border-style:dashed;border-color:var(--border);background:#161b22;box-shadow:none}
+  .slot .idx{position:absolute;top:-18px;left:50%;transform:translateX(-50%);font-size:13px;color:var(--muted)}
+  .slot.flash-y{animation:fy .6s}
+  .len-badge{position:absolute;font-size:12px;color:var(--green)}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🔍 C 内存可视化调试器</h1>
+  <select id="progSel"></select>
+  <button class="btn" id="renameBtn" title="重命名当前程序(或双击下拉)">✏ 重命名</button>
+  <button class="btn danger" id="delBtn" title="删除当前自定义程序">🗑 删除</button>
+  <div class="dropdown" id="newDD">
+    <button class="btn primary" id="newBtn">＋ 新建 ▾</button>
+    <div class="menu">
+      <div class="mi" data-tpl="__blank">✍ 空白代码<small>打开编辑器,自己写C代码并运行</small></div>
+      <div class="mi" data-tpl="link">头插法建链表<small>for循环 + 头插,遍历输出 30 20 10</small></div>
+      <div class="mi" data-tpl="tail">尾插法建链表<small>需 tail 指针,顺序输出 10 20 30</small></div>
+      <div class="mi" data-tpl="search">查找元素<small>while+计数器找值为20的节点</small></div>
+    </div>
+  </div>
+  <button class="btn primary" id="playBtn">▶ 开始运行</button>
+  <button class="btn" id="stepBtn">单步 ⤵</button>
+  <button class="btn" id="resetBtn">重置 ⟲</button>
+  <label style="font-size:12px;color:var(--muted)">慢<input type="range" id="speed" min="150" max="1500" value="800" style="vertical-align:middle">快</label>
+  <button class="btn" id="demoBtn" title="一键放大全部字号,适合投影">🎬 演示模式</button>
+  <button class="btn" id="vizBtn" title="打开具象化视图浮窗">👁️ 具象化视图</button>
+  <span id="status">就绪</span>
+</header>
+<div id="guideBar">
+  👋 欢迎使用!建议先按<b style="color:var(--accent)">「单步」</b>逐行观察内存变化,再点<b style="color:var(--accent)">「▶ 开始运行」</b>自动播放;右侧三个面板会同步显示栈、堆和具象视图。
+  <button id="guideClose">知道了 ✕</button>
+</div>
+<div id="errToast"></div>
+<div id="vizPop">
+  <div id="vizPopBar">
+    <b>👁️ 具象化视图</b><span class="sp"></span>
+    <button id="vizPopClose">✕ 关闭</button>
+  </div>
+  <div id="vizPopBody">
+    <div class="pv-note" id="pvNote"></div>
+    <svg id="vizPopSvg"></svg>
+  </div>
+</div>
+<div id="ctxMenu">
+  <div class="ctitle" id="ctxTitle">程序名</div>
+  <div class="ci" id="ctxRun">▶ 运行此程序</div>
+  <div class="ci" id="ctxEdit">✍ 编辑代码</div>
+  <div class="ci" id="ctxRename">✏ 重命名</div>
+  <div class="sep"></div>
+  <div class="ci danger" id="ctxDelete">🗑 删除</div>
+</div>
+<div id="editorOverlay">
+  <div id="editorBox">
+    <div id="edHead">
+      <b>✍ 代码编辑器</b>
+      <input id="edName" placeholder="程序名称" value="我的程序">
+      <span style="flex:1"></span>
+      <button class="btn danger" id="edClose">✕ 取消</button>
+    </div>
+    <div id="edBody">
+      <textarea id="edCode" spellcheck="false"></textarea>
+      <div id="edHelp">
+        <h4>📖 支持的语法</h4>
+        声明:<code>Node *p = NULL;</code><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<code>int i = 0;</code><br>
+        申请内存:<code>p = malloc(sizeof(Node));</code><br>
+        赋值:<code>p-&gt;data = 10;</code> <code>p-&gt;next = head;</code><br>
+        循环:<code>for(...){...}</code> <code>while(...){...}</code><br>
+        分支:<code>if(...)... else ...</code><br>
+        输出:<code>printf("%d ", p-&gt;data);</code><br>
+        释放:<code>free(p);</code><br>
+        注释 // 与 # 开头的行会被忽略。<br><br>
+        💡 写完点「▶ 运行此代码」,左侧会逐行高亮执行,右侧三视图实时联动。
+      </div>
+    </div>
+    <div id="edCheck"></div>
+    <div id="edFoot">
+      <button class="btn" id="edSave">💾 保存到我的程序</button>
+      <button class="btn primary" id="edRun">▶ 运行此代码</button>
+    </div>
+  </div>
+</div>
+
+<main>
+  <div id="codePane">
+    <div id="codeToolbar">
+      <div class="dropdown" id="newDD2">
+        <button class="btn" id="newBtn2">＋ 新建 ▾</button>
+        <div class="menu">
+          <div class="mi" data-tpl="__blank">✍ 空白代码<small>打开编辑器,自己写C代码并运行</small></div>
+      <div class="mi" data-tpl="link">头插法建链表<small>for循环 + 头插,遍历输出 30 20 10</small></div>
+          <div class="mi" data-tpl="tail">尾插法建链表<small>需 tail 指针,顺序输出 10 20 30</small></div>
+          <div class="mi" data-tpl="search">查找元素<small>while+计数器找值为20的节点</small></div>
+        </div>
+      </div>
+      <span style="font-size:11.5px;color:var(--muted)">双击上方下拉可重命名当前程序</span>
+    </div>
+    <div class="pane-title" id="fileTitle">📄 demo.c</div>
+    <div id="codeScroll"></div>
+    <div id="console"><div style="color:var(--muted)">── 程序输出 ──</div></div>
+  </div>
+  <div class="vdrag" id="dragCode"></div>
+
+  <div id="rightPane">
+    <div id="memRow">
+      <div class="col" id="stackCol"><h2>🧱 栈 Stack</h2><div id="stackVars"></div></div>
+      <div class="vdrag" id="drag0"></div>
+      <div class="col" id="heapCol">
+        <h2>🗑️ 堆 Heap</h2><div id="heapBlocks"></div>
+        <svg class="arrows" id="memArrows"></svg>
+      </div>
+      <div class="vdrag" id="drag1"></div>
+      <div class="col" id="vizCol">
+        <h2>👁️ 具象化视图</h2>
+        <div id="legend">
+          <span><i style="background:rgba(63,185,80,.6)"></i>普通变量</span>
+          <span><i style="background:rgba(210,153,34,.7)"></i>堆块</span>
+          <span><i style="background:#bc8cff"></i>指针/next</span>
+          <span><i style="background:#f85149"></i>NULL</span>
+        </div>
+        <div id="vizArea" style="display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13.5px;text-align:center;line-height:1.9">
+          点顶栏 <b style="color:var(--accent)">「👁️ 具象化视图」</b><br>打开浮动窗口查看<br>链表 / 顺序表的图形演示
+        </div>
+        <svg class="arrows" id="vizArrows"></svg>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+/* ============================================================
+ * 程序 = 步骤表。每步:{code:[显示文本,着色tokens], run(M)=>返回值}
+ * run 返回:
+ *   undefined → 顺序执行下一步
+ *   {goto:'标签'} → 跳回该标签的步骤(循环)
+ *   'end' → 结束
+ * 标签写在步骤的 tag 字段上。
+ * ============================================================ */
+
+const PROGRAMS = {
+
+/* ================= 单链表:头插法 ================= */
+link: {
+  name:'单链表(头插法建表+遍历)',
+  vizKind:'link',
+  steps:[
+    {code:'#include <stdio.h>', t:[['#include <stdio.h>','cm']]},
+    {code:'#include <stdlib.h>', t:[['#include <stdlib.h>','cm']]},
+    {code:'', t:[]},
+    {code:'typedef struct Node {', t:[['typedef ','kw'],['struct ','kw'],['Node','type'],[' {']]},
+    {code:'    int data;', t:[['    int data;','type']]},
+    {code:'    struct Node *next;', t:[['    struct Node *next;','type']]},
+    {code:'} Node;', t:[['} Node;','type']]},
+    {code:'', t:[]},
+    {code:'int main(void) {', t:[['int main(void) {','fn']], tag:'main'},
+    {code:'    Node *head = NULL;', t:[['    ',''],['Node *','type'],['head = NULL;']]},
+    {code:'    Node *p = NULL;', t:[['    ',''],['Node *','type'],['p = NULL;']]},
+    {code:'    for (i = 1; i <= 3; i++) {', t:[['    ',''],['for','kw'],[' (i = ',''],['1','num'],['; i <= ',''],['3','num'],['; i++) {']], tag:'forHead'},
+    {code:'        p = malloc(sizeof(Node));', t:[['        p = ',''],['malloc(sizeof(Node));','fn']]},
+    {code:'        p->data = i * 10;', t:[['        p->data = i * ',''],['10','num'],[';']]},
+    {code:'        p->next = head;', t:[['        p->next = head;']]},
+    {code:'        head = p;', t:[['        head = p;']]},
+    {code:'    }', t:[['    }']], tag:'forEnd'},
+    {code:'    while (p != NULL) {', t:[['    ',''],['while','kw'],[' (p != NULL) {']], tag:'whileHead'},
+    {code:'        printf("%d ", p->data);', t:[['        ',''],['printf','fn'],['(',''],['"%d "','str'],[', p->data);']]},
+    {code:'        p = p->next;', t:[['        p = p->next;']]},
+    {code:'    }', t:[['    }']], tag:'whileEnd'},
+    {code:'    return 0;', t:[['    ',''],['return 0;','kw']], tag:'ret'},
+    {code:'}', t:[['}']]}
+  ],
+  init(M){
+    M.stack=[];M.heap={};M.out='';M.vars={};
+    M.nextAddr=0x1000;M.i=undefined;M.phase=0;
+  },
+  run(M,pc){
+    switch(pc){
+      case 9: // head = NULL
+        M.stack.push({name:'head',type:'Node*',val:'NULL'});break;
+      case 10: // p = NULL
+        M.stack.push({name:'p',type:'Node*',val:'NULL'});break;
+      case 11: // for头
+        if(M.i===undefined){M.i=1;M.stack.push({name:'i',type:'int',val:M.i});}
+        else{M.i++;const v=M.stack.find(x=>x.name==='i');v.val=M.i;}
+        if(M.i<=3)return;                 // 进循环体
+        { // 条件不成立:i出栈,跳到while
+          const k=M.stack.findIndex(x=>x.name==='i');
+          if(k>=0)M.stack.splice(k,1);
+        }
+        return {goto:'whileHead'};
+      case 12:{ // malloc
+        const addr='0x'+M.nextAddr.toString(16).toUpperCase();M.nextAddr+=0x10;
+        M.heap[addr]={data:null,next:'NULL'};
+        setV('p',addr);M.flashHeap=addr;break;}
+      case 13: M.heap[getV('p')].data=M.i*10;M.flashHeap=getV('p');break;
+      case 14: M.heap[getV('p')].next=getV('head');break;
+      case 15: setV('head',getV('p'));break;
+      case 16: return {goto:'forHead'};   // 回循环头
+      case 17: // while判断
+        if(getV('p')==='NULL')return{goto:'ret'};break;
+      case 18: M.out+=M.heap[getV('p')].data+' ';printOut(M.out);break;
+      case 19: setV('p',M.heap[getV('p')].next);break;
+      case 20: return {goto:'whileHead'};
+      case 21: return 'end';
+    }
+  }
+},
+
+/* ================= 单链表:尾插法 ================= */
+tail: {
+  name:'单链表(尾插法建表+遍历)',
+  vizKind:'link',
+  steps:[
+    {code:'#include <stdio.h>', t:[['#include <stdio.h>','cm']]},
+    {code:'#include <stdlib.h>', t:[['#include <stdlib.h>','cm']]},
+    {code:'', t:[]},
+    {code:'typedef struct Node {', t:[['typedef ','kw'],['struct ','kw'],['Node','type'],[' {']]},
+    {code:'    int data;', t:[['    int data;','type']]},
+    {code:'    struct Node *next;', t:[['    struct Node *next;','type']]},
+    {code:'} Node;', t:[['} Node;','type']]},
+    {code:'', t:[]},
+    {code:'int main(void) {', t:[['int main(void) {','fn']], tag:'main'},
+    {code:'    Node *head = NULL;', t:[['    ',''],['Node *','type'],['head = NULL;']]},
+    {code:'    Node *tail = NULL;   // 尾指针', t:[['    ',''],['Node *','type'],['tail = NULL;   // 尾指针','cm']]},
+    {code:'    Node *p = NULL;', t:[['    ',''],['Node *','type'],['p = NULL;']]},
+    {code:'    for (i = 1; i <= 3; i++) {', t:[['    ',''],['for','kw'],[' (i = ',''],['1','num'],['; i <= ',''],['3','num'],['; i++) {']], tag:'forHead'},
+    {code:'        p = malloc(sizeof(Node));', t:[['        p = ',''],['malloc(sizeof(Node));','fn']]},
+    {code:'        p->data = i * 10;', t:[['        p->data = i * ',''],['10','num'],[';']]},
+    {code:'        p->next = NULL;', t:[['        p->next = ',''],['NULL','kw'],[';']]},
+    {code:'        if (head == NULL) head = p;', t:[['        ',''],['if','kw'],[' (head == ',''],['NULL','kw'],[') head = p;']]},
+    {code:'        else tail->next = p;', t:[['        ',''],['else','kw'],[' tail->next = p;']]},
+    {code:'        tail = p;', t:[['        tail = p;']]},
+    {code:'    }', t:[['    }']], tag:'forEnd'},
+    {code:'    p = head;   // 遍历前先回到链表头', t:[['    ',''],['p = head;   // 遍历前先回到链表头','cm']], tag:'resetP'},
+    {code:'    while (p != NULL) {', t:[['    ',''],['while','kw'],[' (p != NULL) {']], tag:'whileHead'},
+    {code:'        printf("%d ", p->data);', t:[['        ',''],['printf','fn'],['(',''],['"%d "','str'],[', p->data);']]},
+    {code:'        p = p->next;', t:[['        p = p->next;']]},
+    {code:'    }', t:[['    }']], tag:'whileEnd'},
+    {code:'    return 0;', t:[['    ',''],['return 0;','kw']], tag:'ret'},
+    {code:'}', t:[['}']]}
+  ],
+  init(M){
+    M.stack=[];M.heap={};M.out='';M.vars={};
+    M.nextAddr=0x4000;M.i=undefined;
+  },
+  run(M,pc){
+    switch(pc){
+      case 9:  M.stack.push({name:'head',type:'Node*',val:'NULL'});break;
+      case 10: M.stack.push({name:'tail',type:'Node*',val:'NULL'});break;
+      case 11: M.stack.push({name:'p',type:'Node*',val:'NULL'});break;
+      case 12: // for(i=1;i<=3;i++)
+        if(M.i===undefined){M.i=1;M.stack.push({name:'i',type:'int',val:M.i});}
+        else{M.i++;const v=M.stack.find(x=>x.name==='i');v.val=M.i;}
+        if(M.i>3){
+          const k=M.stack.findIndex(x=>x.name==='i');
+          if(k>=0)M.stack.splice(k,1);
+          return {goto:'resetP'};
+        }
+        break;
+      case 13:{ // malloc
+        const addr='0x'+M.nextAddr.toString(16).toUpperCase();M.nextAddr+=0x10;
+        M.heap[addr]={data:null,next:'NULL'};
+        setV('p',addr);M.flashHeap=addr;break;}
+      case 14: M.heap[getV('p')].data=M.i*10;M.flashHeap=getV('p');break;
+      case 15: M.heap[getV('p')].next='NULL';break;
+      case 16: // if (head == NULL) head = p;
+        if(getV('head')==='NULL')setV('head',getV('p'));break;
+      case 17: // else tail->next = p;
+        if(getV('head')!==getV('p'))M.heap[getV('tail')].next=getV('p');
+        else if(getV('tail')!=='NULL'&&getV('tail')!==getV('p'))M.heap[getV('tail')].next=getV('p');
+        break;
+      case 18: // tail = p
+        setV('tail',getV('p'));break;
+      case 19: return {goto:'forHead'};
+      case 20: // p = head 回到链头
+        setV('p',getV('head'));break;
+      case 21: // while判断
+        if(getV('p')==='NULL')return{goto:'ret'};break;
+      case 22: M.out+=M.heap[getV('p')].data+' ';printOut(M.out);break;
+      case 23: setV('p',M.heap[getV('p')].next);break;
+      case 24: return {goto:'whileHead'};
+      case 25: return 'end';
+    }
+  }
+},
+
+/* ================= 单链表:查找元素 ================= */
+search: {
+  name:'单链表(查找元素)',
+  vizKind:'link',
+  steps:[
+    {code:'#include <stdio.h>', t:[['#include <stdio.h>','cm']]},
+    {code:'#include <stdlib.h>', t:[['#include <stdlib.h>','cm']]},
+    {code:'', t:[]},
+    {code:'typedef struct Node {', t:[['typedef ','kw'],['struct ','kw'],['Node','type'],[' {']]},
+    {code:'    int data;', t:[['    int data;','type']]},
+    {code:'    struct Node *next;', t:[['    struct Node *next;','type']]},
+    {code:'} Node;', t:[['} Node;','type']]},
+    {code:'', t:[]},
+    {code:'int main(void) {', t:[['int main(void) {','fn']], tag:'main'},
+    {code:'    Node *head = NULL, *p = NULL;', t:[['    ',''],['Node *','type'],['head = ',''],['NULL','kw'],[', p = ',''],['NULL','kw'],[';']]},
+    {code:'    int pos = 0;             // 计数器', t:[['    ',''],['int','type'],[' pos = ',''],['0','num'],[';   // 计数器','cm']]},
+    {code:'    /* 建立链表 10→20→30 */', t:[['    /* 建立链表 10→20→30 */','cm']]},
+    {code:'    p = malloc(sizeof(Node)); p->data = 10; p->next = NULL; head = p;',
+      t:[['    p = ',''],['malloc','fn'],['(sizeof(Node)); p->data = ',''],['10','num'],['; p->next = ',''],['NULL','kw'],['; head = p;']], tag:'b1'},
+    {code:'    p = malloc(sizeof(Node)); p->data = 20; p->next = NULL; head->next = p;',
+      t:[['    p = ',''],['malloc','fn'],['(sizeof(Node)); p->data = ',''],['20','num'],['; p->next = ',''],['NULL','kw'],['; head->next = p;']]},
+    {code:'    p = malloc(sizeof(Node)); p->data = 30; p->next = NULL; head->next->next = p;',
+      t:[['    p = ',''],['malloc','fn'],['(sizeof(Node)); p->data = ',''],['30','num'],['; p->next = ',''],['NULL','kw'],['; head->next->next = p;']]},
+    {code:'    /* 查找值为 20 的节点 */', t:[['    /* 查找值为 20 的节点 */','cm']]},
+    {code:'    p = head; pos = 1;', t:[['    p = head; pos = ',''],['1','num'],[';']], tag:'srchInit'},
+    {code:'    while (p != NULL && p->data != 20) {', t:[['    ',''],['while','kw'],[' (p != ',''],['NULL','kw'],[' && p->data != ',''],['20','num'],[') {']], tag:'whHead'},
+    {code:'        p = p->next; pos++;', t:[['        p = p->next; pos++;']]},
+    {code:'    }', t:[['    }']], tag:'whEnd'},
+    {code:'    if (p != NULL)', t:[['    ',''],['if','kw'],[' (p != ',''],['NULL','kw'],[')']], tag:'ifLine'},
+    {code:'        printf("找到 20, 位置 %d\\n", pos);', t:[['        ',''],['printf','fn'],['(',''],['"找到 20, 位置 %d\\n"','str'],[', pos);']]},
+    {code:'    return 0;', t:[['    ',''],['return 0;','kw']], tag:'ret'},
+    {code:'}', t:[['}']]}
+  ],
+  init(M){
+    M.stack=[];M.heap={};M.out='';M.vars={};
+    M.nextAddr=0x6000;
+  },
+  run(M,pc){
+    switch(pc){
+      case 9:  // head,p 声明
+        M.stack.push({name:'head',type:'Node*',val:'NULL'});
+        M.stack.push({name:'p',type:'Node*',val:'NULL'});break;
+      case 10: M.stack.push({name:'pos',type:'int',val:0});break;
+      case 12:{ // 第1个节点(值10)
+        const a='0x'+M.nextAddr.toString(16).toUpperCase();M.nextAddr+=0x10;
+        M.heap[a]={data:10,next:'NULL'};setV('p',a);setV('head',a);M.flashHeap=a;break;}
+      case 13:{ // 第2个节点(值20)
+        const a='0x'+M.nextAddr.toString(16).toUpperCase();M.nextAddr+=0x10;
+        M.heap[a]={data:20,next:'NULL'};setV('p',a);
+        M.heap[getV('head')].next=a;M.flashHeap=a;break;}
+      case 14:{ // 第3个节点(值30)
+        const a='0x'+M.nextAddr.toString(16).toUpperCase();M.nextAddr+=0x10;
+        M.heap[a]={data:30,next:'NULL'};setV('p',a);
+        const mid=M.heap[getV('head')].next;M.heap[mid].next=a;M.flashHeap=a;break;}
+      case 16: // p=head; pos=1
+        setV('p',getV('head'));setV('pos',1);break;
+      case 17:{ // while(p!=NULL && p->data!=20)
+        const a=getV('p');
+        if(a==='NULL'||M.heap[a].data===20)return{goto:'ifLine'};
+        break;}
+      case 18: // p=p->next; pos++
+        setV('p',M.heap[getV('p')].next);setV('pos',Number(getV('pos'))+1);break;
+      case 19: return {goto:'whHead'};
+      case 21: // printf
+        printOut('找到 20, 位置 '+getV('pos'));break;
+      case 22: return 'end';
+    }
+  }
+},
+
+/* ================= 顺序表演示 ================= */
+seq: {
+  name:'顺序表(插入+删除)',
+  vizKind:'seq',
+  steps:[
+    {code:'#include <stdio.h>', t:[['#include <stdio.h>','cm']]},
+    {code:'#define MAXSIZE 5', t:[['#define MAXSIZE ',''],['5','num']]},
+    {code:'', t:[]},
+    {code:'typedef struct {', t:[['typedef struct {','kw']]},
+    {code:'    int data[MAXSIZE];', t:[['    int data[MAXSIZE];','type']]},
+    {code:'    int length;', t:[['    int length;','type']]},
+    {code:'} SqList;', t:[['} SqList;','type']]},
+    {code:'', t:[]},
+    {code:'int main(void) {', t:[['int main(void) {','fn']]},
+    {code:'    SqList L; L.length = 0;', t:[['    SqList L; L.length = ',''],['0','num'],[';']]},
+    {code:'    for (i = 1; i <= 3; i++)', t:[['    ',''],['for','kw'],[' (i = ',''],['1','num'],['; i <= ',''],['3','num'],['; i++)']], tag:'forHead'},
+    {code:'        L.data[i-1] = i * 10;', t:[['        L.data[i-1] = i * ',''],['10','num'],[';']]},
+    {code:'        L.length++;', t:[['        L.length++;']]},
+    {code:'    }', t:[['    }']], tag:'forEnd'},
+    {code:'    printf("遍历: ");', t:[['    ',''],['printf','fn'],['(',''],["\"\\n\"",''],['遍历: ','str'],[');']], tag:'trav'},
+    {code:'    for (i = 0; i < L.length; i++)', t:[['    ',''],['for','kw'],[' (i = ',''],['0','num'],['; i < L.length; i++)']], tag:'prHead'},
+    {code:'        printf("%d ", L.data[i]);', t:[['        ',''],['printf','fn'],['(',''],['"%d "','str'],[', L.data[i]);']]},
+    {code:'    }', t:[['    }']], tag:'prEnd'},
+    {code:'    L.length--;   // 删除末尾元素', t:[['    ',''],['L.length--;   // 删除末尾元素','cm']], tag:'del'},
+    {code:'    return 0;', t:[['    ',''],['return 0;','kw']], tag:'ret'},
+    {code:'}', t:[['}']]}
+  ],
+  init(M){
+    M.stack=[];M.heap={};M.out='';M.vars={};M.nextAddr=0x2000;
+    M.i=undefined;M.i2=undefined;
+    // 顺序表的数组本体在栈上!模拟:栈里放L,数组内容存M.arr
+    M.arr=new Array(5).fill(null);
+    M.len=0;
+  },
+  run(M,pc){
+    switch(pc){
+      case 9: // L声明,length=0
+        M.stack.push({name:'L',type:'SqList',val:'{data[5], length=0}'});
+        break;
+      case 10: // for(i=1;i<=3;i++)
+        if(M.i===undefined){M.i=1;M.stack.push({name:'i',type:'int',val:M.i});}
+        else{M.i++;const v=M.stack.find(x=>x.name==='i');v.val=M.i;}
+        if(M.i>3){ // 条件不成立:i出栈并跳到遍历
+          const k=M.stack.findIndex(x=>x.name==='i');
+          if(k>=0)M.stack.splice(k,1);
+          M.i=undefined;
+          return {goto:'trav'};
+        }
+        break;
+      case 11: // L.data[i-1]=i*10
+        M.arr[M.i-1]=M.i*10;M.flashSlot=M.i-1;break;
+      case 12: M.len++;M.stack.find(x=>x.name==='L').val=`{data[5], length=${M.len}}`;break;
+      case 13: return {goto:'forHead'};
+      case 14: printOut('遍历: ');break;   // trav
+      case 15: // 第二个for
+        if(M.i2===undefined){M.i2=0;M.stack.push({name:'i',type:'int',val:0});}
+        else{M.i2++;const v=M.stack.find(x=>x.name==='i');v.val=M.i2;}
+        if(M.i2>=M.len){M.stack.splice(M.stack.findIndex(x=>x.name==='i'),1);M.i2=undefined;return{goto:'del'};}
+        break;
+      case 16: M.out+=M.arr[M.i2]+' ';printOut('遍历: '+M.out);break;
+      case 17: return {goto:'prHead'};
+      case 18: // L.length-- 删除末尾
+        M.arr[M.len-1]=null;M.len--;M.flashSlot=null;
+        M.stack.find(x=>x.name==='L').val=`{data[5], length=${M.len}}`;break;
+      case 19: return 'end';
+    }
+  }
+}
+};
+
+
+/* ============================================================
+ * 迷你C解释器:把用户写的代码编译成可视化步骤表
+ * 支持:声明/赋值/malloc/free/成员访问/数组/for/while/if-else/printf
+ * ============================================================ */
+function stripComments(src){
+  return src.replace(/\/\*[\s\S]*?\*\//g,'').replace(/\/\/[^\n]*/g,'');
+}
+/* 词法:按语句切分,保留行号 */
+function tokenizeLine(line,no){
+  const t=line.trim();
+  if(!t||t.startsWith('#'))return null;
+  return {line:t,no};
+}
+/* 把整段代码切成"扁平语句流",控制流语句记录嵌套关系
+   返回:{items:[{type,line,no,...}], error} */
+function parseProgram(src){
+  const lines=stripComments(src).split('\n');
+  const items=[];           // 编译产物:线性步骤
+  const loopStack=[];       // {kind:'for'|'while', headIdx, bodyStart, endIdx(回填), varInfo}
+  let depthErr=null;
+
+  function emit(o){items.push(Object.assign({no:curNo},o));}
+  let curNo=0;
+
+  for(let li=0;li<lines.length;li++){
+    curNo=li+1;
+    const raw=lines[li];
+    const t=(tokenizeLine(raw,curNo)||{}).line;
+    if(t===undefined||t===null)continue;
+    let ln=t.replace(/^ +/,'');
+
+    /* 块结束 } —— 回填最近的循环/if */
+    if(ln==='}'){
+      /* 弹出最近的块;若中途有未闭合循环则报错(说明括号不配对) */
+      const top=loopStack.pop();
+      if(!top){return{error:`第${curNo}行:多余的 "}"`};}
+      if(top.kind==='for'||top.kind==='while'){
+        /* 这个}可能是循环自己的(如果循环后紧跟})——通过下一个非空行判断太复杂,
+           教学场景:循环体的}先于函数}出现,直接按循环处理 */
+        items.push({type:'blockEnd',no:curNo,owner:top});
+      }
+      /* kind==='block' → 函数体结束,不产生指令 */
+      continue;
+    }
+    /* for(...) { */
+    let m=ln.match(/^for\s*\((.+)\)\s*\{?$/);
+    if(m){
+      const parts=splitForParts(m[1]);
+      if(!parts)return{error:`第${curNo}行:for括号内需要用两个分号隔开: for(初始; 条件; 自增)`};
+      emit({type:'forHead',init:parts.init,cond:parts.cond,step:parts.step});
+      loopStack.push({kind:'for'});
+      continue;
+    }
+    /* while(...) { */
+    m=ln.match(/^while\s*\((.+)\)\s*\{?$/);
+    if(m){
+      emit({type:'whileHead',cond:m[1]});
+      loopStack.push({kind:'while'});
+      continue;
+    }
+    /* if(...) 或 if(...)... 单行或带{ */
+    m=ln.match(/^if\s*\((.+)\)\s*(.*)$/);
+    if(m){
+      emit({type:'if',cond:m[1]});
+      continue;
+    }
+    if(/^else\b/.test(ln)){
+      emit({type:'else'});continue;
+    }
+    if(ln==='{'){loopStack.push({kind:'block'});continue;} // 函数体等普通块
+    if(/^}\s*$/.test(ln)&&ln==='}'){/* 已在上方处理 */}
+    /* 函数定义行 int main(void) { */
+    const fm=ln.match(/^(?:int|void)\s+main\s*\([^)]*\)\s*\{$/);
+    if(fm){loopStack.push({kind:'block'});continue;}
+    /* printf */
+    m=ln.match(/^printf\s*\((.*)\);?$/);
+    if(m){emit({type:'printf',args:m[1]});continue;}
+    /* free(p); */
+    m=ln.match(/^free\s*\(\s*(\w+)\s*\);?$/);
+    if(m){emit({type:'free',name:m[1]});continue;}
+    /* malloc赋值: p = (Node*)malloc(sizeof(Node)); / p = malloc(sizeof(Node)); */
+    m=ln.match(/^(\*?\w+)\s*(?:->|\.)?\w*\s*=\s*(?:\(\s*\w+\s*\*\s*\))?\s*malloc\s*\(\s*sizeof\s*\(\s*\w+\s*\)\s*\)\s*;?$/)
+      || ln.match(/^(\*?\w+)\s*=\s*(?:\(\s*\w+\s*\*\s*\))?\s*malloc\s*\(/);
+    if(ln.includes('malloc')){
+      const vm=ln.match(/^([\w\->\.\[\]]+)\s*=\s*/);
+      if(!vm)return{error:`第${curNo}行:malloc 需要赋给一个变量,如 p = malloc(sizeof(Node));`};
+      emit({type:'malloc',target:vm[1]});continue;
+    }
+    /* return 0; → 结束标记 */
+    if(/^return\b/.test(ln)){emit({type:'ret'});continue;}
+    /* 普通语句(声明/赋值/自增)——可能一行多条用 ; 分隔 */
+    for(const one of ln.split(';')){
+      if(!one.trim())continue;
+      emit({type:'stmt',code:one.trim()});
+    }
+  }
+  if(loopStack.length)return{error:`缺少 "}" :有一个 ${loopStack[0].kind} 循环没有闭合`};
+  /* 后处理:配对 blockEnd 与循环头,生成回跳信息 */
+  linkLoops(items);
+  return{items};
+}
+/* for(a;b;c) 按;切分(不考虑嵌套括号里的分号,教学场景够用) */
+function splitForParts(s){
+  const parts=s.split(';').map(x=>x.trim());
+  if(parts.length!==3)return null;
+  return{init:parts[0],cond:parts[1],step:parts[2]};
+}
+/* 配对:每个循环头的条件判断失败时跳到它对应的 blockEnd 之后 */
+function linkLoops(items){
+  const stack=[];
+  for(let i=0;i<items.length;i++){
+    const it=items[i];
+    if(it.type==='forHead'||it.type==='whileHead'){it.loopId=i;stack.push(it);}
+    else if(it.type==='blockEnd'&&stack.length){
+      const top=stack[stack.length-1];
+      /* 这个}属于最近打开的块(if的{也会入栈吗?不,if不入loopStack) */
+      top.endIdx=i;          // 循环体结束位置
+      it.ownerLoop=top;
+      stack.pop();
+    }
+  }
+}
+
+
+/* 把解析出的items编译为可运行程序:
+ * 执行模型:解释器带指令指针ip,每条item对应一次"单步"(高亮其源码行)。
+ * 循环回跳:blockEnd时回到ownerLoop.loopId重新判断条件。 */
+function compileUserProg(src,name){
+  const {items,error}=parseProgram(src);
+  if(error)return{error};
+  const prog={
+    name:name||'我的程序',
+    vizKind:'link',          // 有堆块操作默认链表视图;纯顺序表代码也能显示(无堆块时为空)
+    userSrc:src,
+    steps:items.map(it=>({code:it.raw||it.line||src.split('\n')[it.no-1]||'', t:[[ (it.raw||it.line||''),'']]})),
+    init(M){M.stack=[];M.heap={};M.vars={};M.out='';M.nextAddr=0x9000;this._ip=0;},
+    run(M,pc){
+      this._items=items;
+      return execUserStep(M,pc,this,items);
+    }
+  };
+  return{prog};
+}
+
+/* 表达式求值:数字/变量/NULL/成员/数组/简单算术(+ - * /)/比较(== != < <= > >=)/&& || */
+function evalExpr(expr,M){
+  let e=expr.trim()
+    .replace(/sizeof\s*\(\s*\w+\s*\)/g,'4')
+    .replace(/\bNULL\b/g,'null')
+    .replace(/->/g,'.')
+    .replace(/(\w+)\+\+/g,'$1')
+    .replace(/(\w+)--/g,'$1')
+    .replace(/&&/g,'&&');
+  /* 成员访问:p.data / L.length / head.next.data / L.data[i] */
+  function resolve(tok){
+    tok=tok.trim();
+    if(tok==='null')return null;
+    if(/^-?\d+(\.\d+)?$/.test(tok))return Number(tok);
+    if(/^".*"$/.test(tok))return tok.slice(1,-1);
+    /* 链式路径 a.b.c 或 a[i] */
+    const segs=tok.match(/\w+|\[([^\]]*)\]/g)||[];
+    let base=segs[0];
+    const v=M.vars[base];
+    if(!v)return undefined;
+    if(segs.length===1){
+      if(v.kind==='ptr')return (v.val=='NULL'||v.val==null)?null:v.val;
+      if(v.kind==='int')return Number(v.val);
+      return v.val;
+    }
+    let cur=v.kind==='ptr'?v.val:v.val;
+    for(let k=1;k<segs.length;k++){
+      const sg=segs[k];
+      if(sg.startsWith('[')){
+        const idx=evalExpr(sg.slice(1,-1),M);
+        cur=(cur&&cur.arr)?cur.arr[idx]:(M.arr?M.arr[idx]:undefined);
+      }else{
+        if(cur===null||cur===undefined)return undefined;
+        if(typeof cur==='string'&&cur.startsWith('0x'))cur=M.heap[cur];   // 指针解引用
+        if(cur&&typeof cur==='object'&&cur.obj)cur=cur.obj[sg];
+        else if(cur)cur=cur[sg];
+      }
+    }
+    return (cur===undefined||cur==='NULL')?(cur==='NULL'?null:undefined):cur;
+  }
+  /* 简易优先级:先算括号,再算乘除,再加减,再比较,再逻辑 */
+  function evalRaw(str){
+    str=str.trim();
+    /* 括号 */
+    const pm=str.match(/\(([^()]*)\)/);
+    if(pm)return evalRaw(str.replace(pm[0],String(evalRaw(pm[1]))));
+    /* 逻辑或/与 */
+    for(const op of ['||','&&']){
+      const idx=findOp(str,op);
+      if(idx>=0){
+        const l=evalRaw(str.slice(0,idx)),r=evalRaw(str.slice(idx+op.length));
+        return op==='||'?Boolean(l||r):Boolean(l&&r);
+      }
+    }
+    for(const op of ['==','!=','<=','>=','<','>']){
+      const idx=findOp(str,op);
+      if(idx>=0){
+        const l=evalRaw(str.slice(0,idx)),r=evalRaw(str.slice(idx+op.length));
+        switch(op){case '==':return l===r;case '!=':return l!==r;
+          case '<':return l<r;case '<=':return l<=r;
+          case '>':return l>r;case '>=':return l>=r;}
+      }
+    }
+    for(const op of ['+','-']){
+      const idx=findOp(str,op);
+      if(idx>0){
+        const l=evalRaw(str.slice(0,idx)),r=evalRaw(str.slice(idx+1));
+        return Number(l)+Number(r)*(op==='-'?-1:1)*(op==='-'?1:1);
+      }
+    }
+    for(const op of ['*','/','%']){
+      const idx=findOp(str,op);
+      if(idx>0){
+        const l=evalRaw(str.slice(0,idx)),r=evalRaw(str.slice(idx+1));
+        return op==='*'?l*r:(op==='/'?Math.trunc(l/r):l%r);
+      }
+    }
+    return resolve(str);
+  }
+  /* 找到不在字符串里的运算符位置 */
+  function findOp(str,op){
+    let d=0;
+    for(let i=0;i<str.length-1;i++){
+      const c=str[i];
+      if(c==='(')d++;
+      if(c===')')d--;
+      if(d)continue;
+      if(str.startsWith(op,i))return i;
+    }
+    return -1;
+  }
+  return evalRaw(e);
+}
+
+
+/* 变量模型:M.vars[name] = {kind:'ptr',val:'NULL'|addr} | {kind:'int',val:n} | {kind:'struct',obj:{...}} */
+function declVar(M,name,decl){
+  /* decl: {type:'Node*'|'int', init} */
+  if(decl.type==='Node*'&&!M.stack.some(v=>v.name===name)){
+    M.stack.push({name,type:'Node*',val:'NULL'});
+  }else if(decl.type==='int'&&!M.stack.some(v=>v.name===name)){
+    M.stack.push({name,type:'int',val:0});
+  }
+}
+function getVar(M,name){
+  const segs=name.match(/\w+/g);
+  let base=segs[0];
+  const v=M.vars[base];
+  if(!v)return undefined;
+  if(segs.length===1)return v;
+  return v; // 复杂路径在evalExpr里处理
+}
+function setPtr(M,name,addr){
+  const v=M.vars[name];
+  if(v&&v.kind==='ptr'){v.val=addr;
+    const s=M.stack.find(x=>x.name===name);if(s)s.val=addr;}
+  else setV(name,addr);
+}
+function allocNode(M){
+  const addr='0x'+M.nextAddr.toString(16).toUpperCase();
+  M.nextAddr+=0x10;
+  M.heap[addr]={data:null,next:'NULL'};
+  M.flashHeap=addr;
+  return addr;
+}
+
+/* 单步执行:执行items[ip],返回下一步动作
+ * 返回:{jump:idx}|{next:true}|{end:true}|{error:msg} */
+function execUserStep(M,pc,progObj){
+  const items=progObj._items;
+  if(progObj._ip===undefined)progObj._ip=0;
+  while(true){
+    const it=items[progObj._ip];
+    if(!it)return{end:true};
+    switch(it.type){
+      case 'forHead':{
+        /* 初始化只做一次:用it._inited标记 */
+        if(!it._entered){
+          it._entered=true;
+          if(it.init)doAssign(it.init,M);
+        }
+        if(it.cond && !truthy(evalExpr(it.cond,M))){
+          it._entered=false;                    // 重置,支持外层循环再来一轮
+          progObj._ip=it.endIdx!==undefined?it.endIdx+1:items.length;
+          if(progObj._ip>=items.length)return{end:true};
+          continue;   // 继续处理下一条(不产生可视化步骤)
+        }
+        progObj._ip++;   // 条件成立:进入循环体
+        return{};
+      }
+      case 'blockEnd':{
+        const top=it.ownerLoop;
+        if(top&&(top.type==='forHead'||top.type==='whileHead')){
+          /* for的自增 */
+          if(top.type==='forHead'&&top.step)doAssign(top.step.replace(/\+\+/,'+=1').replace(/--/,'-=1'),M);
+          /* 回到循环头重新判断:直接跳,不占步骤 */
+          progObj._ip=top.loopId;
+          continue;
+        }
+        progObj._ip++;continue;
+      }
+      case 'whileHead':{
+        if(!truthy(evalExpr(it.cond,M))){
+          progObj._ip=(it.endIdx!==undefined?it.endIdx+1:items.length);
+          if(progObj._ip>=items.length)return{end:true};
+          continue;
+        }
+        progObj._ip++;   // 进入循环体
+        return{};
+      }
+      case 'if':{
+        if(!truthy(evalExpr(it.cond,M))){
+          /* 跳过下一条语句(单行if场景);若下条是else则也跳过 */
+          const nx=items[progObj._ip+1];
+          if(nx&&nx.type==='stmt'){progObj._ip+=2;}
+          else if(nx&&nx.type==='else'){progObj._ip+=nx.skipCount||2;}
+          else progObj._ip++;
+          continue;
+        }
+        progObj._ip++;continue;
+      }
+      case 'else':{ /* 到达else说明前面if条件为真已执行 → 跳过else的语句 */
+        progObj._ip++;continue;
+      }
+      case 'malloc':{
+        const addr=allocNode(M);
+        setPtr(M,it.target,addr);
+        progObj._ip++;return{};
+      }
+      case 'free':{
+        const a=M.vars[it.name]?M.vars[it.name].val:null;
+        if(a&&a!=='null'&&a!=='NULL')delete M.heap[a];
+        setPtr(M,it.name,'NULL');
+        progObj._ip++;return{};
+      }
+      case 'printf':{
+        doPrintf(it.args,M);
+        progObj._ip++;return{};
+      }
+      case 'ret':{
+        return{end:true};
+      }
+      case 'stmt':{
+        doAssign(it.code,M);
+        progObj._ip++;return{};
+      }
+      default:
+        progObj._ip++;continue;
+    }
+  }
+}
+function truthy(v){return v!==null&&v!==undefined&&v!==false&&v!==0;}
+
+/* 执行一条赋值/声明/自增语句 */
+function doAssign(code,M){
+  code=code.trim().replace(/;$/,'');
+  /* int i = 0 / Node *p = NULL / int arr[5]; */
+  let m=code.match(/^int\s+(\w+)\s*\[\s*(\d+)\s*\]$/);
+  if(m){M.vars[m[1]]={kind:'arr',arr:new Array(Number(m[2])).fill(0)};return;}
+  m=code.match(/^(?:Node\s*\*|SqList\s*\*?)\s*(\w+)\s*(?:=\s*(.+))?$/);
+  if(m){
+    const name=m[1];
+    if(!M.vars[name]){
+      M.vars[name]={kind:'ptr',val:'NULL'};
+      M.stack.push({name,type:/SqList/.test(code)?'SqList':'Node*',val:'NULL'});
+    }
+    if(m[2])assignTo(name,m[2],M);
+    return;
+  }
+  m=code.match(/^int\s+(\w+)\s*(?:=\s*(.+))?$/);
+  if(m){
+    const name=m[1];
+    if(!M.vars[name]){
+      M.vars[name]={kind:'int',val:m[2]?Number(evalExpr(m[2],M)):0};
+      M.stack.push({name,type:'int',val:M.vars[name].val});
+    }else if(m[2]){M.vars[name].val=Number(evalExpr(m[2],M));
+      const s=M.stack.find(x=>x.name===name);if(s)s.val=M.vars[name].val;}
+    return;
+  }
+  m=code.match(/^SqList\s+(\w+)\s*$/);
+  if(m){
+    M.vars[m[1]]={kind:'struct',obj:{length:0}};
+    M.stack.push({name:m[1],type:'SqList',val:'{data[], length=0}'});
+    M.arr=new Array(5).fill(null);M.len=0;   // 具象视图数据
+    return;
+  }
+  assignTo(code,null,M);
+}
+/* 把 rhs 求值并赋给 lvalue (p / p->data / head->next / L.length / L.data[i] / i++ 等) */
+function assignTo(lv,rhs,M){
+  lv=lv.trim();
+  /* 自增自减 */
+  let m=lv.match(/^(\w+)\+\+$/)||lv.match(/^\+\+(\w+)$/);
+  if(m){bumpVar(m[1],1,M);return;}
+  m=lv.match(/^(\w+)--$/);
+  if(m){bumpVar(m[1],-1,M);return;}
+  /* 形如 p->data = expr / head = p / i = 0 */
+  const am=lv.match(/^([\w\->\.\[\]]+?)\s*=\s*(.+)$/);
+  if(am){
+    const target=am[1].replace(/->/g,'.').trim();
+    const val=evalExpr(am[2],M);
+    storePath(target,val,M);
+  }
+}
+function bumpVar(name,delta,M){
+  const v=M.vars[name];
+  if(v){v.val=Number(v.val)+delta;
+    const s=M.stack.find(x=>x.name===name);if(s)s.val=v.val;}
+}
+/* 存储路径:a.b.c / a[i] / 简单名。指针成员写入堆块对象 */
+function storePath(path,val,M){
+  const parts=path.split('.');
+  if(parts.length===1){
+    const name=parts[0];
+    /* 数组元素 L.data[i] 已拆成L.data与[i]?这里处理纯名字或arr[idx] */
+    const am=name.match(/^(\w+)\[(\w+)\]$/);
+    if(am){
+      const arr=M.vars[am[1]];
+      const idx=Number(evalExpr(am[2],M));
+      if(arr&&arr.kind==='arr')arr.arr[idx]=val;
+      else if(am[1]==='L'&&M.arr){M.arr[idx]=val;}   // 顺序表具象兼容
+      return;
+    }
+    const v=M.vars[name];
+    if(v){
+      if(v.kind==='ptr')v.val=(val===null?'NULL':val);
+      else v.val=val;
+    }
+    const sv=M.stack.find(x=>x.name===name);
+    if(sv)sv.val=(val===null?'NULL':val);
+    return;
+  }
+  /* 多级:base.seg1.seg2... 最后一段是写入目标 */
+  const baseName=parts[0];
+  const base=M.vars[baseName];
+  if(base&&base.kind==='ptr'&&base.val!=='NULL'&&base.val!==null){
+    let node=M.heap[base.val];
+    for(let k=1;k<parts.length-1;k++){
+      const nxt=node[parts[k]];
+      node=(typeof nxt==='object'&&nxt)?nxt:(nxt&&nxt.startsWith('0x')?M.heap[nxt]:undefined);
+      if(node===undefined)return;
+    }
+    node[parts[parts.length-1]]=val===null?'NULL':val;
+    M.flashHeap=base.val;
+  }else if(base&&base.kind==='struct'){
+    let obj=base.obj;
+    for(let k=1;k<parts.length-1;k++)obj=obj[parts[k]];
+    obj[parts[parts.length-1]]=val;
+    /* 顺序表特判:data数组/length 同步具象 */
+    if(baseName==='L'){
+      if(parts[1]==='length'){M.len=val;
+        const sv=M.stack.find(x=>x.name==='L');if(sv)sv.val=`{data[5], length=${M.len}}`;}
+      if(parts[1]==='data'&&parts.length===3){
+        const idx=Number(parts[2]);M.arr=M.arr||new Array(5).fill(null);M.arr[idx]=val;M.flashSlot=idx;}
+    }
+  }
+}
+/* printf:格式串 + 参数列表 */
+function doPrintf(argsStr,M){
+  /* 切分参数(不考虑字符串内逗号的复杂情况——教学代码够用) */
+  const sm=argsStr.match(/^\s*"((?:[^"\\]|\\.)*)"\s*(?:,(.*))?$/);
+  if(!sm){printOut(String(evalExpr(argsStr,M)));return;}
+  let fmt=sm[1].replace(/\\n/g,'\n');
+  const argStr=sm[2];
+  if(argStr&&argStr.trim()){
+    /* 手动按顶层逗号切参 */
+    const args=[];let d=0,cur='';
+    for(const ch of argStr){
+      if(ch==='(')d++;if(ch===')')d--;
+      if(ch===','&&d===0){args.push(cur);cur='';}
+      else cur+=ch;
+    }
+    args.push(cur);
+    let ai=0;
+    fmt=fmt.replace(/%d|%s|%.?\d*f/g,()=>{
+      const v=evalExpr(args[ai++]||'',M);
+      return v===null||v===undefined?'NULL':String(v);
+    });
+  }
+  printOut(fmt.trim());
+}
+
+/* ============================================================
+ * 程序管理器:内置 + 自定义(localStorage)
+ * ============================================================ */
+/* ===== 枢纽站点集成:URL参数(user/font/speed/autoviz) ===== */
+const QS=new URLSearchParams(location.search);
+const CUR_USER=QS.get('user')||null;              // 有值=从学习中心进入
+const LS_KEY=CUR_USER?('mv_programs@'+CUR_USER):'mv_programs';   // 每个用户独立存储
+// 内置程序不可删
+const BUILTIN_IDS=['link','tail','search','seq'];
+
+function loadCustom(){ // 自定义项只存 {id,name,template},运行时从模板克隆
+  try{return JSON.parse(localStorage.getItem(LS_KEY)||'[]');}catch(e){return [];}
+}
+function saveCustom(list){try{localStorage.setItem(LS_KEY,JSON.stringify(list));}catch(e){}}
+let customProgs=loadCustom();
+
+function cloneProg(tplId,name){
+  const src=PROGRAMS[tplId];
+  return {name,vizKind:src.vizKind,steps:src.steps,init:src.init,run:src.run};
+}
+function getProgById(id){
+  if(BUILTIN_IDS.includes(id))return PROGRAMS[id];
+  const c=customProgs.find(p=>p.id===id);
+  return c?cloneProg(c.template,c.name):null;
+}
+function progLabel(id){
+  if(BUILTIN_IDS.includes(id))return PROGRAMS[id].name;
+  const c=customProgs.find(p=>p.id===id);
+  return c?c.name:id;
+}
+function refreshSel(curId){
+  const sel=document.getElementById('progSel');
+  sel.innerHTML='';
+  const og=document.createElement('optgroup');og.label='内置程序';
+  BUILTIN_IDS.forEach(id=>{
+    const o=document.createElement('option');o.value=id;o.textContent=progLabel(id);
+    og.appendChild(o);
+  });
+  sel.appendChild(og);
+  if(customProgs.length){
+    const cg=document.createElement('optgroup');cg.label='我的程序';
+    customProgs.forEach(p=>{
+      const o=document.createElement('option');o.value=p.id;o.textContent=p.name;
+      cg.appendChild(o);
+    });
+    sel.appendChild(cg);
+  }
+  sel.value=curId;
+  document.getElementById('delBtn').style.visibility=BUILTIN_IDS.includes(curId)?'hidden':'visible';
+}
+/* ===== 打开编辑器(空白或以模板为基础) ===== */
+const TEMPLATE_SRC={
+link:`#include <stdio.h>
+#include <stdlib.h>
+
+int main(void) {
+    Node *head = NULL;
+    Node *p = NULL;
+    for (i = 1; i <= 3; i++) {
+        p = malloc(sizeof(Node));
+        p->data = i * 10;
+        p->next = head;
+        head = p;
+    }
+    p = head;
+    while (p != NULL) {
+        printf("%d ", p->data);
+        p = p->next;
+    }
+    return 0;
+}`};
+let editorProgId=null;   // 当前编辑器对应的自定义程序id(null=未保存的新代码)
+
+function openEditor(baseSrc,baseName){
+  pause();
+  document.getElementById('edCode').value=baseSrc||'';
+  if(baseName)document.getElementById('edName').value=baseName;
+  document.getElementById('editorOverlay').classList.add('open');
+  edCheckNow();
+}
+function closeEditor(){document.getElementById('editorOverlay').classList.remove('open');}
+/* 实时语法检查 */
+function edCheckNow(){
+  const src=document.getElementById('edCode').value;
+  const el=document.getElementById('edCheck');
+  if(!src.trim()){el.className='';el.textContent='等待输入…';return null;}
+  const r=parseProgram(src);
+  if(r.error){el.className='bad';el.textContent='✗ '+r.error;return null;}
+  el.className='ok';
+  el.textContent=`✓ 解析成功:共 ${r.items.length} 条可执行语句`;
+  return r.items.length;
+}
+document.getElementById('edCode').addEventListener('input',edCheckNow);
+/* tab键=4空格 */
+document.getElementById('edCode').addEventListener('keydown',e=>{
+  if(e.key==='Tab'){e.preventDefault();
+    const ta=e.target,pos=ta.selectionStart;
+    ta.value=ta.value.slice(0,pos)+'    '+ta.value.slice(ta.selectionEnd);
+    ta.selectionStart=ta.selectionEnd=pos+4;}
+});
+document.getElementById('edClose').onclick=closeEditor;
+/* 运行:把编辑器内容编译为程序并加载 */
+document.getElementById('edRun').onclick=()=>{
+  const src=document.getElementById('edCode').value;
+  const name=document.getElementById('edName').value.trim()||'未命名程序';
+  const r=compileUserProg(src,name);
+  if(r.error){edCheckNow();showErr(r.error);return;}
+  USER_PROG=r.prog;USER_PROG._items=r.prog._items||null;
+  /* 编译产物挂items引用 */
+  USER_PROG._items=parseProgram(src).items;
+  closeEditor();
+  PROG=USER_PROG;
+  document.getElementById('fileTitle').textContent='📄 '+name+'.c (自定义)';
+  resetRun();
+  setStatus('▶ 自定义程序已加载,按 ▶ 开始运行 或 单步 ⤵');
+};
+/* 保存到我的程序 */
+document.getElementById('edSave').onclick=()=>{
+  const src=document.getElementById('edCode').value;
+  let name=document.getElementById('edName').value.trim()||'我的程序';
+  if(!src.trim()){alert('先写点代码再保存吧!');return;}
+  if(!parseProgram(src).items){alert('代码有语法错误,无法保存。');return;}
+  /* 同名覆盖 */
+  const exist=customProgs.find(p=>p.name===name);
+  const id=exist?exist.id:'u'+Date.now().toString(36);
+  if(exist){exist.src=src;}else{customProgs.push({id,name,src});}
+  saveCustom(customProgs);
+  refreshSel(id);
+  closeEditor();
+  /* 直接加载保存的程序 */
+  loadProgramByIdCustom(id);
+  setStatus('💾 已保存并加载:'+name);
+};
+function loadProgramByIdCustom(id){
+  const c=customProgs.find(p=>p.id===id);
+  if(!c||!c.src)return;
+  const r=compileUserProg(c.src,c.name);
+  if(r.error)return;
+  USER_PROG=r.prog;USER_PROG._items=parseProgram(c.src).items;
+  PROG=USER_PROG;
+  document.getElementById('fileTitle').textContent='📄 '+c.name+'.c (自定义)';
+  resetRun();
+  setStatus('已加载:'+c.name+',按 ▶ 开始');
+}
+
+function newFromTemplate(tplId){
+  pause();
+  if(tplId==='__blank'){openEditor('','我的程序');return;}
+  const names={link:'头插法建链表',tail:'尾插法建链表',search:'查找元素'};
+  const base=names[tplId]||tplId;
+  let n=1,name=base;
+  while(customProgs.some(p=>p.name===name)){n++;name=base+' '+n;}
+  const id='u'+Date.now().toString(36);
+  customProgs.push({id,name,template:tplId});
+  saveCustom(customProgs);
+  refreshSel(id);
+  loadProgram(id);
+  setStatus('✨ 已从模板创建:'+name);
+}
+function renameCurrent(){
+  const id=document.getElementById('progSel').value;
+  const c=customProgs.find(p=>p.id===id);
+  if(!c)return; // 内置不可改名
+  const name=prompt('新名称:',c.name);
+  if(name===null)return;
+  name=name.trim();if(!name)return;
+  c.name=name;saveCustom(customProgs);refreshSel(id);
+  document.getElementById('fileTitle').textContent='📄 '+name+'.c';
+}
+function deleteCurrent(){
+  const id=document.getElementById('progSel').value;
+  if(BUILTIN_IDS.includes(id))return;
+  const c=customProgs.find(p=>p.id===id);
+  if(!c)return;
+  if(!confirm('确定删除程序「'+c.name+'」吗?此操作不可恢复。'))return;
+  customProgs=customProgs.filter(p=>p.id!==id);
+  saveCustom(customProgs);
+  pause();
+  refreshSel('link');
+  loadProgram('link');
+  setStatus('🗑 已删除「'+c.name+'」');
+}
+
+/* ============================================================
+ * 引擎
+ * ============================================================ */
+let PROG=PROGRAMS.link, M={}, pc=0, done=true;
+let USER_PROG=null;   // 当前自定义(编辑器)程序
+
+function getV(n){
+  const v=M.vars[n];
+  if(v&&typeof v==='object'&&'kind'in v)return v.val==null?'NULL':v.val;
+  return v??'NULL';
+}
+function setV(n,v){M.vars[n]=v;const s=M.stack.find(x=>x.name===n);if(s)s.val=v;}
+function setStatus(t,isDone){
+  const s=document.getElementById('status');
+  s.textContent=t;s.classList.toggle('done',!!isDone);
+}
+function showErr(msg){
+  setStatus('⚠ 运行错误:'+msg,true);
+  const toast=document.getElementById('errToast');
+  toast.textContent='⚠ 运行错误:'+msg+' —— 请点「重置 ⟲」后重试,或切换其他程序。';
+  toast.style.display='block';
+  clearTimeout(showErr._t);
+  showErr._t=setTimeout(()=>{toast.style.display='none';},6000);
+  printOut('⚠ 运行错误:'+msg);
+}
+
+function resetRun(){
+  pc=0;done=false;
+  document.getElementById('errToast').style.display='none';
+  document.getElementById('playBtn').textContent='▶ 开始运行';
+  stepBtn.disabled=!!timer;
+  PROG.init(M={});M.vars=M.vars||{};
+  document.getElementById('console').innerHTML='<div style="color:var(--muted)">── 程序输出 ──</div>';
+  render();
+}
+
+/* 状态栏:当前行源码片段(而非裸行号) */
+function curLineSnippet(){
+  const st=PROG.steps[pc];
+  if(!st||!st.code)return '—';
+  const t=(st.code.trim()||'(空行)');
+  return t.length>26?t.slice(0,26)+'…':t;
+}
+
+function stepOnce(){
+  if(done)return false;
+  const st=PROG.steps[pc];
+  let res;
+  try{res=PROG.run(M,pc);}catch(e){showErr(e.message);done=true;return false;}
+  if(res==='end'||(res&&res.end)){done=true;setStatus('🎉 运行结束!可点「↻ 重新运行」再看一遍',true);render();updatePlayBtn();return false;}
+  if(res&&res.error){showErr(res.error);done=true;return false;}
+  if(res&&res.goto){
+    const idx=PROG.steps.findIndex(s=>s.tag===res.goto);
+    pc=idx<0?pc+1:idx;
+  }else if(!PROG._items){
+    pc++;   // 内置步骤表程序:线性推进
+    if(pc>=PROG.steps.length){done=true;setStatus('🎉 运行结束!可点「↻ 重新运行」再看一遍',true);render();updatePlayBtn();return false;}
+  }
+  /* 自定义解释器程序:_ip由execUserStep管理;高亮行跟随_ip对应的语句行号 */
+  if(PROG._items){
+    const it=PROG._items[PROG._ip];
+    pc=it?it.no-1:PROG.steps.length-1;
+  }
+  setStatus('▶ 第 '+(pc+1)+' 行 · '+curLineSnippet());
+  render();
+  return !done;
+}
+
+function printOut(t){
+  /* append 模式:保留历史,新输出一行 + 高亮闪烁 */
+  const c=document.getElementById('console');
+  const line=document.createElement('div');
+  line.className='console-line flash';
+  line.textContent=t;
+  c.appendChild(line);
+  line.scrollIntoView({block:'nearest'});
+}
+
+/* ============================================================
+ * 渲染
+ * ============================================================ */
+function render(){
+  /* 代码高亮 */
+  const els=document.querySelectorAll('.code-line');
+  els.forEach((el,i)=>el.classList.toggle('active',!done&&i===pc));
+
+  renderStack();
+  renderHeap();
+  drawArrows('memArrows',memArrowSpecs());
+  renderVizPop();   // 浮窗同步
+}
+
+function renderStack(){
+  const sv=document.getElementById('stackVars');sv.innerHTML='';
+  (M.stack||[]).forEach(v=>{
+    const d=document.createElement('div');
+    d.className='var-box'+(v.type==='int'?' int-var':'');
+    const shown=v.val==='NULL'?'<span class="nullv">NULL</span>':v.val;
+    d.innerHTML=`<span class="var-name">${v.name}</span><span class="var-type">${v.type}</span><div class="var-val">${shown}</div>`;
+    d.dataset.vn=v.name;
+    sv.appendChild(d);
+  });
+}
+
+function renderHeap(){
+  const hb=document.getElementById('heapBlocks');hb.innerHTML='';
+  /* 按链序排列(head沿next遍历),减少箭头交叉;不在链上的块排在后面 */
+  let addrs=[];
+  const seen=new Set();
+  let cur=getV('head'),guard=0;
+  while(cur!=='NULL'&&M.heap&&M.heap[cur]&&!seen.has(cur)&&guard++<50){addrs.push(cur);seen.add(cur);cur=M.heap[cur].next;}
+  Object.keys(M.heap||{}).sort().forEach(a=>{if(!seen.has(a))addrs.push(a);});
+  const perRow=Math.max(1,Math.floor((hb.clientWidth||400)/215));
+  addrs.forEach((addr,i)=>{
+    const col=i%perRow,row=Math.floor(i/perRow);
+    const x=16+col*215,y=12+row*58;
+    const n=M.heap[addr];
+    const box=document.createElement('div');
+    box.className='heap-node';box.style.left=x+'px';box.style.top=y+'px';
+    box.id='hb-'+addr.slice(2);
+    const nx=n.next==='NULL'?'<span class="nullv">NULL</span>':n.next.slice(2);
+    box.innerHTML=`<div class="cell data">${n.data??'?'}</div><div class="cell next">${nx}</div>`;
+    hb.appendChild(box);
+    const lab=document.createElement('div');
+    lab.className='heap-addr';lab.textContent=addr;
+    lab.style.left=(x+2)+'px';lab.style.top=(y-13)+'px';
+    hb.appendChild(lab);
+  });
+}
+
+/* 内存视图箭头:栈指针→堆块 + next链 */
+function memArrowSpecs(){
+  const specs=[];
+  (M.stack||[]).forEach(v=>{
+    if(v.type==='Node*'&&v.val!=='NULL'&&M.heap[v.val])
+      specs.push({from:`[data-vname="${v.name}"]`,to:'#hb-'+v.val.slice(2),label:v.name});
+  });
+  Object.keys(M.heap||{}).forEach(a=>{
+    const nx=M.heap[a].next;
+    if(nx!=='NULL'&&M.heap[nx])specs.push({from:'#hb-'+a.slice(2),to:'#hb-'+nx.slice(2)});
+  });
+  return specs;
+}
+
+/* 具象化视图 */
+function renderViz(){
+  const va=document.getElementById('vizArea');
+  document.getElementById('vizArrows').innerHTML='';
+  if(PROG.vizKind==='seq')renderSeqViz(va);
+  else renderLinkViz(va);
+}
+
+/* --- 链表具象:一串盒子 + 谁指向谁的标注箭头 --- */
+function renderLinkViz(va){
+  const addrs=Object.keys(M.heap||{}).sort().reverse(); // 头插法:地址大的在前面?实际按链序排
+  // 从 head 开始沿 next 排出链序
+  const order=[];let cur=getV('head'),guard=0;
+  while(cur!=='NULL'&&M.heap[cur]&&guard++<20){order.push(cur);cur=M.heap[cur].next;}
+  va.innerHTML=`<div class="viz-note" style="height:44px">链表在逻辑上是<b style="color:var(--yellow)">一串盒子</b>,箭头表示"谁指向谁"。</div>`;
+  if(!order.length){va.insertAdjacentHTML('beforeend','<div style="color:var(--muted);font-size:13px;margin-top:60px">(空链表)</div>');return;}
+  order.forEach((addr,i)=>{
+    const x=14+i*118,y=110;
+    const n=M.heap[addr];
+    const d=document.createElement('div');
+    d.className='vnode';d.style.left=x+'px';d.style.top=y+'px';
+    d.id='vb-'+addr.slice(2);
+    const nxHtml=n.next==='NULL'?'<span class="nullv">∅</span>':'•';
+    d.innerHTML=`<div class="vd">${n.data??'?'}</div><div class="vn">${nxHtml}</div>`;
+    va.appendChild(d);
+    if(i<order.length-1){ // 盒子之间的箭头
+      drawVA(x+76,y+18,x+112,y+18,'next');
+    }
+  });
+  // 栈上指针的具象箭头 + 标签(纵向错开,避免重叠)
+  (M.stack||[]).filter(v=>v.type==='Node*'&&v.val!=='NULL'&&order.includes(v.val)).forEach((v,k)=>{
+    const i=order.indexOf(v.val);
+    const tx=14+i*118, ty=110;
+    const lx=14+k*170;                 // 标签横向也错开
+    const top=52+k*26; // 说明文字下方开始分层
+    const lab=document.createElement('div');
+    lab.className='vlabel'+(v.name==='p'?' p-label':'');
+    lab.textContent=v.name+' ⟶ 指向第'+(i+1)+'个节点';
+    lab.style.left=lx+'px';lab.style.top=top+'px';
+    va.appendChild(lab);
+    // 从标签下方画到目标盒顶
+    drawVA(lx+Math.min(60,tx-lx>0?tx-lx:60),top+20,tx+38,ty-2,v.name,true);
+  });
+  if(order.length){
+    const lastAddr=order[order.length-1];
+    const i=order.length-1,x=14+i*118;
+    va.insertAdjacentHTML('beforeend',`<div style="position:absolute;left:${x}px;top:${158}px;color:var(--red);font-size:13px">↑ 尾节点,next=NULL</div>`);
+  }
+}
+
+/* --- 顺序表具象:带下标的格子 --- */
+function renderSeqViz(va){
+  va.innerHTML=`<div class="viz-note">顺序表的数组在<b style="color:var(--green)">栈上连续排列</b>(这里是L的data[5]),<br>实心格=已存数据,虚线格=空闲。length=${M.len??0}。</div>`;
+  for(let i=0;i<5;i++){
+    const x=16+i*66,y=110;
+    const slot=document.createElement('div');
+    slot.className='slot'+((M.arr[i]===null)?' empty':'');
+    slot.id='sl-'+i;
+    slot.style.left=x+'px';slot.style.top=y+'px';
+    slot.innerHTML=`<span class="idx">[${i}]</span>${M.arr[i]===null?'':M.arr[i]}`;
+    if(M.flashSlot===i)slot.classList.add('flash-y');
+    va.appendChild(slot);
+  }
+  va.insertAdjacentHTML('beforeend',`<div class="len-badge" style="left:16px;top:168px;font-size:13px">length = ${M.len??0}(有效元素个数)</div>`);
+  M.flashSlot=undefined; // 只闪一次
+}
+
+/* SVG箭头工具:画进指定svg */
+function drawVA(x1,y1,x2,y2,label,dash){
+  drawInto('vizArrows',x1,y1,x2,y2,label,dash);
+}
+function drawInto(svgId,x1,y1,x2,y2,label,dash){
+  const svg=document.getElementById(svgId);
+  const host=svg.parentElement.getBoundingClientRect();
+  svg.setAttribute('width',host.width);svg.setAttribute('height',host.height);
+  const NS='http://www.w3.org/2000/svg';
+  const g=document.createElementNS(NS,'g');
+  const p=document.createElementNS(NS,'path');
+  const mx=(x1+x2)/2;
+  p.setAttribute('d',`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+  if(dash)p.setAttribute('stroke-dasharray','5,4');
+  g.appendChild(p);
+  const ang=Math.atan2(y2-(y1+y2)/2,x2-mx)||0;
+  const tri=document.createElementNS(NS,'polygon');
+  tri.setAttribute('points',`${x2},${y2} ${x2-9},${y2-4.5} ${x2-9},${y2+4.5}`);
+  g.appendChild(tri);
+  if(label){
+    const t=document.createElementNS(NS,'text');
+    t.textContent=label;t.setAttribute('x',(x1+x2)/2-10);t.setAttribute('y',(y1+y2)/2);
+    g.appendChild(t);
+  }
+  svg.appendChild(g);
+}
+
+/* 内存面板箭头(基于DOM元素位置) */
+function drawArrows(svgId,specs){
+  const svg=document.getElementById(svgId);
+  const host=svg.parentElement.getBoundingClientRect();
+  svg.setAttribute('width',host.width);svg.setAttribute('height',host.height);
+  svg.innerHTML='';
+  specs.forEach(s=>{
+    const f=document.querySelector(s.from),t=document.querySelector(s.to);
+    if(!f||!t)return;
+    const r1=f.getBoundingClientRect(),r2=t.getBoundingClientRect();
+    const x1=r1.right-host.left,y1=r1.top+r1.height/2-host.top;
+    const x2=r2.left-host.left,y2=r2.top+r2.height/2-host.top;
+    drawInto(svgId,x1,y1,x2,y2,s.label,false);
+  });
+}
+
+/* ============================================================
+ * 代码渲染与控制
+ * ============================================================ */
+function loadProgram(id){
+  /* 编辑器保存的源码型程序 */
+  const cu=customProgs.find(c=>c.id===id);
+  if(cu&&cu.src){loadProgramByIdCustom(id);return;}
+  const p=getProgById(id);
+  if(!p)return;
+  PROG=p;
+  document.getElementById('fileTitle').textContent='📄 '+progLabel(id)+'.c';
+  const cs=document.getElementById('codeScroll');cs.innerHTML='';
+  PROG.steps.forEach(st=>{
+    const div=document.createElement('div');div.className='code-line';
+    const ln=document.createElement('span');ln.className='ln';ln.textContent=st.code?PROG.steps.indexOf(st)+1:'';
+    const body=document.createElement('span');
+    st.t.forEach(([txt,cls])=>{const s=document.createElement('span');if(cls)s.className=cls;s.textContent=txt;body.appendChild(s);});
+    div.appendChild(ln);div.appendChild(body);cs.appendChild(div);
+  });
+  resetRun();
+  setStatus('已加载:'+progLabel(id)+',按 ▶ 开始'); // #9
+}
+
+let timer=null;
+const stepBtn=document.getElementById('stepBtn');
+function updatePlayBtn(){
+  document.getElementById('playBtn').textContent=timer?'⏸ 暂停':(done?'↻ 重新运行':'▶ 开始运行');
+  stepBtn.disabled=!!timer; // 播放时单步不可用(#2)
+}
+function play(){
+  if(timer)return;
+  if(done)resetRun();          // 结束后再点 = 重新运行
+  timer=setInterval(()=>{if(!stepOnce())pause();},+document.getElementById('speed').value);
+  updatePlayBtn();
+}
+function pause(){clearInterval(timer);timer=null;if(!done)setStatus('⏸ 暂停 · 第'+(pc+1)+'行 · '+curLineSnippet());updatePlayBtn();}
+
+document.getElementById('playBtn').onclick=()=>timer?pause():play();
+stepBtn.onclick=()=>{if(timer)return;if(!stepOnce())setStatus('🎉 已结束,可点「↻ 重新运行」或切换程序',true);};
+document.getElementById('resetBtn').onclick=()=>{pause();resetRun();setStatus('⟲ 已重置,按「▶ 开始运行」或「单步」开始');};
+document.getElementById('speed').oninput=()=>{if(timer){pause();play();}};
+document.getElementById('progSel').onchange=e=>{pause();loadProgram(e.target.value);};
+document.getElementById('renameBtn').onclick=renameCurrent;
+document.getElementById('delBtn').onclick=deleteCurrent;
+
+/* 引导条关闭 + 演示模式 */
+document.getElementById('guideClose').onclick=()=>document.getElementById('guideBar').remove();
+document.getElementById('demoBtn').onclick=()=>{
+  const on=document.body.classList.toggle('demo-mode');
+  document.getElementById('demoBtn').textContent=on?'🎬 退出演示':'🎬 演示模式';
+};
+
+/* 双击下拉 = 重命名当前自定义程序 */
+let lastClick=0;
+document.getElementById('progSel').onmousedown=e=>{lastClick=Date.now();};
+document.getElementById('progSel').addEventListener('dblclick',e=>{e.preventDefault();renameCurrent();});
+
+/* 新建下拉菜单(顶栏 + 代码区工具栏两处) */
+document.querySelectorAll('.dropdown').forEach(dd=>{
+  dd.querySelector('button').addEventListener('click',e=>{
+    e.stopPropagation();
+    document.querySelectorAll('.dropdown').forEach(o=>{if(o!==dd)o.classList.remove('open');});
+    dd.classList.toggle('open');
+  });
+  dd.querySelectorAll('.mi').forEach(mi=>{
+    mi.addEventListener('click',()=>{
+      dd.classList.remove('open');
+      newFromTemplate(mi.dataset.tpl);
+    });
+  });
+});
+document.addEventListener('click',()=>document.querySelectorAll('.dropdown').forEach(d=>d.classList.remove('open')));
+
+window.addEventListener('resize',()=>{render();}); // 完整重绘,具象视图也跟随(#10)
+if(document.getElementById('vizPop')){}
+
+/* ============================================================
+ * 可拖拽分隔条:按住左右拖调整相邻栏宽度
+ * ============================================================ */
+function makeVDrag(handle,getTarget,setDelta){
+  const el=document.getElementById(handle);
+  el.addEventListener('mousedown',e=>{
+    e.preventDefault();
+    el.classList.add('on');
+    let startX=e.clientX;
+    function move(ev){
+      const dx=ev.clientX-startX;startX=ev.clientX;
+      setDelta(getTarget(),dx);
+      drawArrows('memArrows',memArrowSpecs());
+    }
+    function up(){el.classList.remove('on');
+      document.removeEventListener('mousemove',move);
+      document.removeEventListener('mouseup',up);}
+    document.addEventListener('mousemove',move);
+    document.addEventListener('mouseup',up);
+  });
+}
+function setW(el,dx){
+  let w=el.getBoundingClientRect().width+dx;
+  w=Math.max(160,Math.min(w,window.innerWidth-400));
+  el.style.width=w+'px';
+  el.style.flex='none';
+}
+makeVDrag('dragCode',
+  ()=>document.getElementById('codePane'),
+  (t,dx)=>{setW(t,dx);});           // 分隔条跟随鼠标:右拖=代码区变宽
+makeVDrag('drag0',
+  ()=>document.getElementById('stackCol'),
+  (t,dx)=>{setW(t,dx);});           // 栈区宽度
+makeVDrag('drag1',
+  ()=>document.getElementById('vizCol'),
+  (t,dx)=>{setW(t,-dx);});          // 该条在具象区左缘:右拖=具象区变窄(条跟随鼠标)
+
+
+/* ============================================================
+ * 具象化视图浮动弹窗:简洁方框+地址/数据,指针用箭头指向
+ * 文字说明固定在顶部一条,与图形完全分离
+ * ============================================================ */
+let vizPopOpen=false;
+
+function toggleVizPop(force){
+  vizPopOpen=force!==undefined?force:!vizPopOpen;
+  document.getElementById('vizPop').classList.toggle('open',vizPopOpen);
+  document.getElementById('vizBtn').classList.toggle('active',vizPopOpen);
+  if(vizPopOpen)renderVizPop();
+}
+document.getElementById('vizBtn').onclick=()=>toggleVizPop();
+document.getElementById('vizPopClose').onclick=()=>toggleVizPop(false);
+
+/* 弹窗拖动(按住标题栏) */
+(function(){
+  const bar=document.getElementById('vizPopBar'),pop=document.getElementById('vizPop');
+  bar.addEventListener('mousedown',e=>{
+    if(e.target.tagName==='BUTTON')return;
+    e.preventDefault();
+    let sx=e.clientX,sy=e.clientY;
+    const r=pop.getBoundingClientRect();
+    let ox=r.left,oy=r.top;
+    pop.style.right='auto';pop.style.bottom='auto';
+    function mv(ev){
+      let nx=ox+ev.clientX-sx,ny=oy+ev.clientY-sy;
+      nx=Math.max(0,Math.min(nx,window.innerWidth-80));
+      ny=Math.max(0,Math.min(ny,window.innerHeight-40));
+      pop.style.left=nx+'px';pop.style.top=ny+'px';
+    }
+    function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);}
+    document.addEventListener('mousemove',mv);
+    document.addEventListener('mouseup',up);
+  });
+})();
+
+/* 渲染浮窗内容 */
+function renderVizPop(){
+  if(!vizPopOpen)return;
+  const body=document.getElementById('vizPopBody');
+  const svg=document.getElementById('vizPopSvg');
+  svg.innerHTML='';
+  /* 顶部说明条与图形分离 */
+  const isSeq=PROG.vizKind==='seq';
+  document.getElementById('pvNote').innerHTML=isSeq
+    ?'顺序表:栈上连续格子。实心=有数据,虚线=空闲。<b style="color:#3fb950">length='+ (M.len??0) +'</b>'
+    :'链表:每个方框=一个节点(左:数据 / 右:地址)。箭头从指针出发,箭头落在哪就指向哪。';
+
+  body.querySelectorAll('.pv-node,.pv-null,.pv-ptr').forEach(e=>e.remove());
+
+  if(isSeq){renderPopSeq(body);return;}
+
+  /* 链序遍历 */
+  const order=[];let cur=getV('head'),guard=0;
+  while(cur!=='NULL'&&M.heap[cur]&&guard++<30){order.push(cur);cur=M.heap[cur].next;}
+  if(!order.length)return;
+
+  const x0=24,y0=90,W=150,H=52,GAP=46;
+  order.forEach((addr,i)=>{
+    const x=x0+i*(W+GAP),y=y0;
+    const n=M.heap[addr];
+    const box=document.createElement('div');
+    box.className='pv-node';box.style.left=x+'px';box.style.top=y+'px';
+    box.id='pvn-'+addr.slice(2);
+    if(M.flashHeap===addr)box.classList.add('pv-hot');
+    const addrTxt=addr;
+    const nxShow=n.next==='NULL'?'<span style="color:var(--red)">⌀</span>':'•';
+    box.innerHTML=`<div class="pv-d">${n.data??'?'}</div><div class="pv-a">${addrTxt}<br><span style="color:#bc8cff">${nxShow}</span></div>`;
+    body.appendChild(box);
+    if(i<order.length-1){
+      drawPopArrow(svg,x+W,y+H/2,x+W+GAP,y+H/2,'next');
+    }
+  });
+  /* 尾节点NULL标记 */
+  const li=order.length-1,lx=x0+li*(W+GAP);
+  const nl=document.createElement('div');
+  nl.className='pv-null';nl.textContent='⌀ NULL';
+  nl.style.left=(lx+W/2-22)+'px';nl.style.top=(y0+H+14)+'px';
+  body.appendChild(nl);
+
+  /* 栈上指针:标签在节点上方,箭头垂直落进目标框顶 */
+  (M.stack||[]).filter(v=>v.type==='Node*'&&v.val!=='NULL'&&order.includes(v.val)).forEach((v,k)=>{
+    const i=order.indexOf(v.val);
+    const tx=x0+i*(W+GAP)+W/2;
+    /* 标签横向错开避免重叠 */
+    const lx=x0+k*120, ly=y0-44;
+    const lab=document.createElement('div');
+    lab.className='pv-ptr';lab.textContent=v.name;
+    lab.style.left=lx+'px';lab.style.top=ly+'px';
+    lab.id='pvp-'+v.name;
+    body.appendChild(lab);
+    drawPopArrow(svg,lx+28,ly+13,tx,y0-2,v.name,true);
+  });
+}
+
+function renderPopSeq(body){
+  for(let i=0;i<5;i++){
+    const x=24+i*76,y=110;
+    const d=document.createElement('div');
+    d.className='pv-node'+(M.arr[i]===null?'':' pv-hot-none');
+    d.style.left=x+'px';d.style.top=y+'px';
+    d.style.width='64px';d.style.height='52px';
+    d.style.alignItems='center';d.style.justifyContent='center';
+    if(M.arr[i]===null){d.style.borderStyle='dashed';d.style.borderColor='var(--border)';}
+    else{d.innerHTML=`<div class="pv-d" style="border:none">${M.arr[i]}</div>`;d.id='pvs-'+i;}
+    if(M.flashSlot===i)d.classList.add('pv-hot');
+    body.appendChild(d);
+    const idx=document.createElement('div');
+    idx.className='pv-ptr';idx.textContent='['+i+']';
+    idx.style.left=(x+18)+'px';idx.style.top='72px';
+    body.appendChild(idx);
+  }
+}
+
+function drawPopArrow(svg,x1,y1,x2,y2,label,dash){
+  /* label参数保留但不再绘制文字:方框内已有数据/地址,箭头上再叠字会显乱 */
+  svg.setAttribute('width',svg.parentElement.clientWidth||600);
+  svg.setAttribute('height',svg.parentElement.clientHeight||400);
+  const NS='http://www.w3.org/2000/svg';
+  const g=document.createElementNS(NS,'g');
+  const p=document.createElementNS(NS,'path');
+  p.setAttribute('d',`M${x1},${y1} C${(x1+x2)/2},${y1} ${(x1+x2)/2},${y2} ${x2},${y2}`);
+  if(dash){
+    p.setAttribute('stroke-dasharray','5,4');
+    p.setAttribute('stroke','#ffd28a');   /* 指针箭头用暖金色,与next紫色区分 */
+  }
+  g.appendChild(p);
+  const tri=document.createElementNS(NS,'polygon');
+  tri.setAttribute('points',`${x2},${y2} ${x2-9},${y2-4.5} ${x2-9},${y2+4.5}`);
+  if(dash)tri.setAttribute('fill','#ffd28a');
+  g.appendChild(tri);
+  svg.appendChild(g);
+}
+
+/* ============================================================
+ * 右键管理菜单(在程序下拉上右击)
+ * ============================================================ */
+const ctx=document.getElementById('ctxMenu');
+let ctxTargetId=null;
+
+document.getElementById('progSel').addEventListener('contextmenu',e=>{
+  e.preventDefault();
+  const sel=e.target;
+  ctxTargetId=sel.value;
+  const isBuiltin=BUILTIN_IDS.includes(ctxTargetId);
+  const isSrcCustom=(()=>{const c=customProgs.find(c=>c.id===ctxTargetId);return !!(c&&c.src);})();
+  document.getElementById('ctxTitle').textContent=progLabel(ctxTargetId);
+  /* 权限:内置程序不可编辑/重命名/删除 */
+  document.getElementById('ctxEdit').classList.toggle('disabled',!isSrcCustom);
+  document.getElementById('ctxRename').classList.toggle('disabled',isBuiltin);
+  document.getElementById('ctxDelete').classList.toggle('disabled',isBuiltin);
+  /* 定位(防溢出) */
+  ctx.style.display='block';
+  const mw=ctx.offsetWidth,mh=ctx.offsetHeight;
+  let x=e.clientX,y=e.clientY;
+  if(x+mw>window.innerWidth-8)x=window.innerWidth-mw-8;
+  if(y+mh>window.innerHeight-8)y=window.innerHeight-mh-8;
+  ctx.style.left=x+'px';ctx.style.top=y+'px';
+});
+/* 点击别处关闭 */
+document.addEventListener('click',e=>{if(!ctx.contains(e.target))ctx.style.display='none';});
+document.addEventListener('scroll',()=>ctx.style.display='none',true);
+
+document.getElementById('ctxRun').onclick=()=>{
+  ctx.style.display='none';
+  pause();resetRun();
+};
+document.getElementById('ctxEdit').onclick=()=>{
+  ctx.style.display='none';
+  const c=customProgs.find(c=>c.id===ctxTargetId);
+  if(!c||!c.src){setStatus('⚠ 内置程序不支持编辑,可新建空白代码');return;}
+  openEditor(c.src,c.name);
+};
+document.getElementById('ctxRename').onclick=()=>{
+  ctx.style.display='none';
+  const c=customProgs.find(c=>c.id===ctxTargetId);
+  if(!c)return;
+  const name=prompt('新名称:',c.name);
+  if(name===null)return;
+  const nn=name.trim();
+  if(!nn)return;
+  c.name=nn;saveCustom(customProgs);refreshSel(ctxTargetId);
+  if(PROG._items)document.getElementById('fileTitle').textContent='📄 '+nn+'.c (自定义)';
+  setStatus('✏ 已重命名为:'+nn);
+};
+document.getElementById('ctxDelete').onclick=()=>{
+  ctx.style.display='none';
+  if(BUILTIN_IDS.includes(ctxTargetId)){setStatus('⚠ 内置程序不可删除');return;}
+  const c=customProgs.find(c=>c.id===ctxTargetId);
+  if(!c)return;
+  if(!confirm(`确定删除「${c.name}」吗?此操作不可恢复。`))return;
+  customProgs=customProgs.filter(x=>x.id!==ctxTargetId);
+  saveCustom(customProgs);
+  pause();
+  refreshSel('link');loadProgram('link');
+  setStatus('🗑 已删除「'+c.name+'」');
+};
+
+/* 应用枢纽传来的设置 */
+(function applyHubSettings(){
+  const font=parseInt(QS.get('font'));
+  if(font){document.documentElement.style.setProperty('--edFont',font+'px');
+    document.querySelectorAll('.code-line').forEach(()=>{});
+    const st=document.createElement('style');
+    st.textContent=`.code-line{font-size:${font}px!important}`;
+    document.head.appendChild(st);}
+  const sp=parseInt(QS.get('speed'));
+  if(sp)document.getElementById('speed').value=sp;
+  if(QS.get('autoviz'))setTimeout(()=>toggleVizPop(true),400);
+  /* 用户名显示在标题 */
+  if(CUR_USER){
+    document.querySelector('header h1').textContent='🔍 '+CUR_USER+' 的内存调试器';
+  }
+})();
+
+refreshSel('link');
+loadProgram('link');
+</script>
+</body>
+</html>

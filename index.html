@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>数据结构可视化学习中心</title>
+<style>
+  :root{
+    --bg:#0d1117;--panel:#161b22;--border:#30363d;--fg:#e6edf3;--muted:#9aa4b2;
+    --accent:#58a6ff;--green:#3fb950;--red:#f85149;--yellow:#d29922;--purple:#bc8cff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:radial-gradient(1200px 600px at 70% -10%,rgba(88,166,255,.12),transparent),var(--bg);
+    color:var(--fg);font-family:'Microsoft YaHei',sans-serif;min-height:100vh}
+
+  .layer{display:none;min-height:100vh}
+  .layer.on{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+
+  .card{background:linear-gradient(180deg,#161d28,#121822);border:1px solid var(--border);
+    border-radius:16px;padding:34px 38px;width:min(420px,92vw);
+    box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  h1{font-size:22px;text-align:center;background:linear-gradient(90deg,#58a6ff,#bc8cff);
+    -webkit-background-clip:text;background-clip:text;color:transparent;margin-bottom:6px}
+  .sub{text-align:center;color:var(--muted);font-size:13px;margin-bottom:22px}
+  label{display:block;font-size:13px;color:var(--muted);margin:14px 0 6px}
+  input{width:100%;background:#0d1117;border:1px solid var(--border);color:var(--fg);
+    border-radius:8px;padding:10px 12px;font-size:14px;outline:none;transition:border-color .2s}
+  input:focus{border-color:var(--accent)}
+  .btn{width:100%;margin-top:20px;background:#1f6feb;border:none;color:#fff;border-radius:8px;
+    padding:11px;font-size:15px;cursor:pointer;transition:.2s}
+  .btn:hover{background:#388bfd;transform:translateY(-1px)}
+  .btn.ghost{background:transparent;border:1px solid var(--border);color:var(--muted)}
+  .btn.ghost:hover{color:var(--fg);border-color:var(--accent);transform:none}
+  .msg{margin-top:12px;font-size:13px;text-align:center;min-height:18px}
+  .msg.err{color:var(--red)} .msg.ok{color:var(--green)}
+  .switch{margin-top:16px;text-align:center;font-size:13px;color:var(--muted)}
+  .switch a{color:var(--accent);cursor:pointer}
+
+  /* ===== 第二层:仪表盘 ===== */
+  #L2 .card{width:min(760px,94vw)}
+  .topbar{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+  .avatar{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:19px;font-weight:bold;color:#fff;background:linear-gradient(135deg,#58a6ff,#bc8cff)}
+  .topbar b{font-size:16px}
+  .topbar .sp{flex:1}
+  .tbtn{background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--muted);
+    padding:6px 13px;font-size:13px;cursor:pointer;transition:.2s}
+  .tbtn:hover{color:var(--fg);border-color:var(--accent)}
+
+  .mods{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
+  .mod{background:#0d1117;border:1px solid var(--border);border-radius:12px;padding:20px;
+    cursor:pointer;transition:.2s;position:relative;overflow:hidden}
+  .mod:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:0 10px 30px rgba(88,166,255,.15)}
+  .mod .ico{font-size:30px}
+  .mod b{display:block;margin:10px 0 6px;font-size:15px}
+  .mod small{color:var(--muted);font-size:12.5px;line-height:1.6;display:block}
+  .mod.soon{opacity:.45;cursor:not-allowed}
+  .mod.soon:hover{transform:none;border-color:var(--border);box-shadow:none}
+
+  /* 设置面板 */
+  #settingsPanel{display:none;margin-top:18px;border-top:1px dashed var(--border);padding-top:18px}
+  #settingsPanel.on{display:block}
+  .setrow{display:flex;align-items:center;gap:12px;margin-bottom:12px;font-size:14px}
+  .setrow input[type=range]{flex:1}
+  .setval{font-family:Consolas,monospace;color:var(--accent);min-width:44px;text-align:right}
+
+  /* ===== 第三层:可视化容器 ===== */
+  #L3{position:relative}
+  #L3.on{display:block;padding:0;justify-content:flex-start}
+  #vizFrame{width:100%;height:100vh;border:none;background:var(--bg)}
+  #backBar{position:fixed;top:10px;right:14px;z-index:50;display:flex;gap:8px}
+  #backBar button{background:rgba(22,27,34,.92);border:1px solid var(--border);border-radius:8px;
+    color:var(--fg);padding:7px 15px;font-size:13px;cursor:pointer;backdrop-filter:blur(4px)}
+  #backBar button:hover{border-color:var(--accent);color:var(--accent)}
+</style>
+</head>
+<body>
+
+<!-- ============ 第一层:登录 / 注册 ============ -->
+<div class="layer on" id="L1">
+  <div class="card">
+    <h1>📚 数据结构可视化学习中心</h1>
+    <p class="sub">链表 · 顺序表 · 内存动画演示</p>
+
+    <div id="loginForm">
+      <label>用户名</label>
+      <input id="liUser" maxlength="20" placeholder="你的名字/学号">
+      <label>密码</label>
+      <input id="liPass" type="password" maxlength="64" placeholder="至少4位">
+      <button class="btn" id="btnLogin">登 录</button>
+      <div class="msg" id="liMsg"></div>
+      <div class="switch">没有账号?<a id="toReg">注册一个 →</a></div>
+    </div>
+
+    <div id="regForm" style="display:none">
+      <label>用户名(2-20字符)</label>
+      <input id="rgUser" maxlength="20" placeholder="唯一,注册后不可改">
+      <label>密码(至少6位,建议混合字母数字)</label>
+      <input id="rgPass" type="password" maxlength="64">
+      <label>确认密码</label>
+      <input id="rgPass2" type="password" maxlength="64">
+      <button class="btn" id="btnReg">注 册</button>
+      <div class="msg" id="rgMsg"></div>
+      <div class="switch">已有账号?<a id="toLogin">去登录 →</a></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 第二层:模块管理与设置 ============ -->
+<div class="layer" id="L2">
+  <div class="card">
+    <div class="topbar">
+      <div class="avatar" id="uAvatar">?</div>
+      <b id="uName"></b>
+      <span class="sp"></span>
+      <button class="tbtn" id="btnSettings">⚙ 设置</button>
+      <button class="tbtn" id="btnLogout">退出登录</button>
+    </div>
+
+    <div class="mods">
+      <div class="mod" data-module="viz">
+        <div class="ico">🔗</div>
+        <b>线性表</b>
+        <small>顺序表 & 单链表<br>内存分配动画 · 指针追踪<br>自由编写 C 代码并单步执行</small>
+      </div>
+      <div class="mod soon">
+        <div class="ico">🚧</div>
+        <b>栈与队列</b>
+        <small>敬请期待</small>
+      </div>
+      <div class="mod soon">
+        <div class="ico">🌳</div>
+        <b>二叉树</b>
+        <small>敬请期待</small>
+      </div>
+    </div>
+
+    <div id="settingsPanel">
+      <div class="setrow">
+        📝 代码字体大小
+        <input type="range" id="setFont" min="12" max="22" value="14">
+        <span class="setval" id="setFontVal">14px</span>
+      </div>
+      <div class="setrow">
+        ⏩ 动画默认速度(毫秒/步)
+        <input type="range" id="setSpeed" min="150" max="1500" value="800" style="direction:rtl">
+        <span class="setval" id="setSpeedVal">800ms</span>
+      </div>
+      <div class="setrow">
+        👁️ 自动打开具象化浮窗
+        <input type="checkbox" id="setAutoViz" style="width:auto">
+      </div>
+      <div class="msg" id="setMsg"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 第三层:可视化工具 ============ -->
+<div class="layer" id="L3">
+  <div id="backBar">
+    <button id="btnBack">← 返回中心</button>
+  </div>
+  <iframe id="vizFrame" src=""></iframe>
+</div>
+
+<script>
+/* ============================================================
+ * 架构:纯前端单页应用,三层切换。
+ * 数据隔离:每个用户的程序存 localStorage['mv_programs@'+用户名]
+ * 密码安全:SHA-256 哈希存储(crypto.subtle),不存明文。
+ * ============================================================ */
+const USERS_KEY='ds_hub_users';
+const SESSION_KEY='ds_hub_session';
+
+function getUsers(){
+  try{
+    const o=JSON.parse(localStorage.getItem(USERS_KEY)||'{}');
+    /* 结构校验:只接受 {用户名:{salt,hash,...}} 形状,防被篡改的畸形数据 */
+    for(const k of Object.keys(o)){
+      const r=o[k];
+      if(typeof k!=='string'||!r||typeof r!=='object'||typeof r.hash!=='string'){delete o[k];}
+    }
+    return o;
+  }catch(e){return {}}
+}
+function saveUsers(u){localStorage.setItem(USERS_KEY,JSON.stringify(u))}
+
+/* ===== 密码学工具:SHA-256 / 随机盐 / PBKDF2密钥拉伸 ===== */
+function toHex(buf){return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('')}
+async function sha256(str){
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(str));
+  return toHex(buf);
+}
+/* 128位随机盐(十六进制32字符) */
+function randomSalt(){
+  const a=new Uint8Array(16);crypto.getRandomValues(a);return toHex(a);
+}
+/* PBKDF2-SHA256,10万次迭代:大幅提高暴力破解成本 */
+const PBKDF2_ITERS=100000;
+async function deriveKey(pass,salt){
+  const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(pass),'PBKDF2',false,['deriveBits']);
+  const bits=await crypto.subtle.deriveBits(
+    {name:'PBKDF2',salt:new TextEncoder().encode(salt),iterations:PBKDF2_ITERS,hash:'SHA-256'},
+    key,256);
+  return toHex(bits);
+}
+
+const msg=(id,t,cls)=>{const e=document.getElementById(id);e.textContent=t;e.className='msg '+(cls||'')};
+
+/* ---- 层切换 ---- */
+function show(id){
+  document.querySelectorAll('.layer').forEach(l=>l.classList.remove('on'));
+  document.getElementById(id).classList.add('on');
+}
+
+/* ---- 登录/注册表单切换 ---- */
+document.getElementById('toReg').onclick=()=>{document.getElementById('loginForm').style.display='none';document.getElementById('regForm').style.display='block';};
+document.getElementById('toLogin').onclick=()=>{document.getElementById('regForm').style.display='none';document.getElementById('loginForm').style.display='block';};
+
+/* ---- 注册 ---- */
+document.getElementById('btnReg').onclick=async()=>{
+  const u=document.getElementById('rgUser').value.trim();
+  const p=document.getElementById('rgPass').value;
+  const p2=document.getElementById('rgPass2').value;
+  if(!/^[\w\u4e00-\u9fa5]{2,20}$/.test(u))return msg('rgMsg','✗ 用户名需2-20位字母/数字/汉字/下划线','err');
+  if(p.length<6)return msg('rgMsg','✗ 密码至少6位','err');
+  if(p!==p2)return msg('rgMsg','✗ 两次密码不一致','err');
+  const users=getUsers();
+  if(users[u])return msg('rgMsg','✗ 用户名已被注册','err');
+  msg('rgMsg','⏳ 正在加密…','');
+  const salt=randomSalt();                       // 每用户独立128位随机盐
+  const hash=await deriveKey(p,salt);            // PBKDF2十万次迭代
+  users[u]={salt,hash,iters:PBKDF2_ITERS,created:Date.now()};
+  saveUsers(users);
+  msg('rgMsg','✓ 注册成功!请登录','ok');
+  setTimeout(()=>{document.getElementById('toLogin').click();
+    document.getElementById('liUser').value=u;},600);
+};
+
+/* ---- 登录限速状态 ---- */
+const LOCK_KEY='ds_hub_lock';
+function getLock(){try{return JSON.parse(localStorage.getItem(LOCK_KEY)||'{}')}catch(e){return{}}}
+function setLock(l){localStorage.setItem(LOCK_KEY,JSON.stringify(l))}
+function isLocked(u){
+  const l=getLock()[u];
+  return l&&l.until>Date.now()?Math.ceil((l.until-Date.now())/1000):0;
+}
+function recordFail(u){
+  const l=getLock();const now=Date.now();
+  const cur=(l[u]&&now-(l[u].first||0)<300000)?l[u]:{first:now,count:0}; // 5分钟窗口
+  cur.count++;
+  /* 连续失败≥5次 → 锁定该用户名60秒 */
+  cur.until=cur.count>=5?now+60000:0;
+  cur.first=cur.first||now;
+  const all=getLock();all[u]=cur;setLock(all);
+  return cur.count>=5?Math.ceil((cur.until-now)/1000):0;
+}
+function clearFails(u){const l=getLock();delete l[u];setLock(l);}
+
+/* ---- 登录 ---- */
+document.getElementById('btnLogin').onclick=async()=>{
+  const u=document.getElementById('liUser').value.trim();
+  const p=document.getElementById('liPass').value;
+  /* 限速检查 */
+  const remain=isLocked(u);
+  if(remain)return msg('liMsg',`✗ 尝试次数过多,请 ${remain} 秒后再试`,'err');
+  const users=getUsers();
+  const rec=users[u];
+  let ok=false;
+  if(rec){
+    /* 兼容旧格式(hash无salt字段)并自动迁移到PBKDF2 */
+    if(rec.salt&&rec.hash){
+      ok=rec.hash===await deriveKey(p,rec.salt);
+    }else{
+      ok=rec.hash===await sha256('ds$'+u+'#'+p);
+      if(ok){rec.salt=randomSalt();rec.hash=await deriveKey(p,rec.salt);rec.iters=PBKDF2_ITERS;saveUsers(users);}
+    }
+  }
+  if(!ok){
+    const lockSec=recordFail(u);
+    /* 统一错误文案:不暴露"是用户不存在还是密码错" */
+    return msg('liMsg',lockSec?`✗ 尝试次数过多,锁定 ${lockSec} 秒`:'✗ 用户名或密码错误','err');
+  }
+  clearFails(u);
+  sessionStorage.setItem(SESSION_KEY,u);
+  document.getElementById('liPass').value='';   // 清空密码框
+  enterHub(u);
+};
+/* 回车提交 */
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Enter')return;
+  if(document.getElementById('L1').classList.contains('on')){
+    if(document.getElementById('regForm').style.display==='none')document.getElementById('btnLogin').click();
+    else document.getElementById('btnReg').click();
+  }
+});
+
+/* ---- 进入第二层 ---- */
+function enterHub(u){
+  document.getElementById('uName').textContent=u;
+  document.getElementById('uAvatar').textContent=u[0].toUpperCase();
+  loadSettings(u);
+  show('L2');
+}
+
+/* ---- 设置 ---- */
+function loadSettings(u){
+  const s=JSON.parse(localStorage.getItem('ds_settings@'+u)||'{}');
+  document.getElementById('setFont').value=s.font||14;
+  document.getElementById('setFontVal').textContent=(s.font||14)+'px';
+  document.getElementById('setSpeed').value=s.speed||800;
+  document.getElementById('setSpeedVal').textContent=(s.speed||800)+'ms';
+  document.getElementById('setAutoViz').checked=!!s.autoViz;
+}
+let setTimer=null;
+function saveSettings(){
+  const u=sessionStorage.getItem(SESSION_KEY);if(!u)return;
+  const s={font:+document.getElementById('setFont').value,
+           speed:+document.getElementById('setSpeed').value,
+           autoViz:document.getElementById('setAutoViz').checked};
+  localStorage.setItem('ds_settings@'+u,JSON.stringify(s));
+  msg('setMsg','✓ 已保存','ok');
+  clearTimeout(setTimer);setTimer=setTimeout(()=>msg('setMsg',''),1500);
+}
+['setFont','setSpeed'].forEach(id=>document.getElementById(id).addEventListener('input',()=>{
+  document.getElementById(id==='setFont'?'setFontVal':'setSpeedVal').textContent=
+    document.getElementById(id).value+(id==='setFont'?'px':'ms');
+}));
+document.querySelectorAll('#setFont,#setSpeed,#setAutoViz').forEach(el=>el.addEventListener('change',saveSettings));
+document.getElementById('btnSettings').onclick=()=>document.getElementById('settingsPanel').classList.toggle('on');
+
+/* ---- 打开第三层可视化 ---- */
+document.querySelector('.mod[data-module=viz]').onclick=()=>{
+  const u=sessionStorage.getItem(SESSION_KEY);if(!u)return;
+  const s=JSON.parse(localStorage.getItem('ds_settings@'+u)||'{}');
+  const f=document.getElementById('vizFrame');
+  /* 通过URL参数传递当前用户与设置——可视化页据此做数据隔离与样式 */
+  f.src='memory_visualizer.html?user='+encodeURIComponent(u)
+       +(s.font?'&font='+s.font:'')
+       +(s.speed?'&speed='+s.speed:'')
+       +(s.autoViz?'&autoviz=1':'');
+  show('L3');
+};
+document.getElementById('btnBack').onclick=()=>show('L2');
+
+/* ---- 退出登录 ---- */
+document.getElementById('btnLogout').onclick=()=>{
+  sessionStorage.removeItem(SESSION_KEY);
+  document.getElementById('liPass').value='';
+  msg('liMsg','');
+  show('L1');
+};
+
+/* ---- 自动登录(sessionStorage有会话则跳过第一层) ---- */
+(function(){
+  const u=sessionStorage.getItem(SESSION_KEY);
+  if(u&&getUsers()[u])enterHub(u);
+})();
+</script>
+</body>
+</html>
