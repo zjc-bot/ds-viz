@@ -201,7 +201,7 @@
   svg.arrows text{fill:var(--orange);font-size:11px;font-family:var(--mono)}
 
   /* ===== 具象化视图 ===== */
-  #vizCol{width:36%;min-width:300px}
+  #vizCol{width:22%;min-width:170px}
   #vizArea{position:relative;flex:1;font-family:var(--mono);overflow-x:auto;overflow-y:hidden}
   .viz-note{font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:8px}
   /* 链表具象:一串盒子(轻投影) */
@@ -435,8 +435,10 @@
           <span><i style="background:#bc8cff"></i>指针/next</span>
           <span><i style="background:#f85149"></i>NULL</span>
         </div>
-        <div id="vizArea" style="display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13.5px;text-align:center;line-height:1.9">
-          点顶栏 <b style="color:var(--accent)">「👁️ 具象化视图」</b><br>打开浮动窗口查看<br>链表 / 顺序表的图形演示
+        <div id="vizArea" style="display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--muted);font-size:13px;text-align:center;line-height:2;padding:0 8px">
+          <span style="font-size:26px">👁️</span>
+          图形视图已改为<br>浮动窗口模式<br>
+          <b style="color:var(--accent)">点顶栏按钮打开</b>
         </div>
         <svg class="arrows" id="vizArrows"></svg>
       </div>
@@ -1821,9 +1823,9 @@ function makeVDrag(handle,getTarget,setDelta){
     }
   }});
 }
-function setW(el,dx){
+function setW(el,dx,minW){
   let w=el.getBoundingClientRect().width+dx;
-  w=Math.max(160,Math.min(w,window.innerWidth-400));
+  w=Math.max(minW||160,Math.min(w,window.innerWidth-400));
   el.style.width=w+'px';
   el.style.flex='none';
 }
@@ -1835,7 +1837,7 @@ makeVDrag('drag0',
   (t,dx)=>{setW(t,dx);});           // 栈区宽度
 makeVDrag('drag1',
   ()=>document.getElementById('vizCol'),
-  (t,dx)=>{setW(t,-dx);});          // 该条在具象区左缘:右拖=具象区变窄(条跟随鼠标)
+  (t,dx)=>{setW(t,-dx,110);});      // 具象视图已是弹窗模式,此栏可压得很窄(最小110px)
 
 /* 水平拖动条:代码区 ↔ 程序输出(条跟随鼠标,上拖=代码区变矮输出变高) */
 function makeHDrag(handle){
