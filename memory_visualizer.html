@@ -854,7 +854,20 @@ function compileUserProg(src,name){
     name:name||'我的程序',
     vizKind:'link',          // 有堆块操作默认链表视图;纯顺序表代码也能显示(无堆块时为空)
     userSrc:src,
-    steps:items.map(it=>({code:it.raw||it.line||src.split('\n')[it.no-1]||'', t:[[ (it.raw||it.line||''),'']]})),
+    steps:(function(){
+      const execByNo={};items.forEach(it=>{if(!execByNo[it.no])execByNo[it.no]=it;});
+      const lines=src.split('\n');
+      const out=[];
+      lines.forEach((lineText,i)=>{
+        const no=i+1;
+        const t=lineText.trim();
+        if(!t){out.push({code:'',t:[]});return;}
+        const it=execByNo[no];
+        if(it){out.push({code:lineText,t:[[lineText,'']]});}
+        else {out.push({code:lineText,t:[[lineText,'cm']],noexec:true});} // 结构行灰显
+      });
+      return out;
+    })(),
     init(M){M.stack=[];M.heap={};M.vars={};M.out='';M.nextAddr=0x9000;this._ip=0;},
     run(M,pc){
       this._items=items;
@@ -1318,6 +1331,7 @@ document.getElementById('edRun').onclick=()=>{
   USER_PROG._items=parseProgram(src).items;
   closeEditor();
   PROG=USER_PROG;
+  renderCodePane();               // ★关键:把用户的代码显示到左侧代码区
   document.getElementById('fileTitle').textContent='📄 '+name+'.c (自定义)';
   resetRun();
   setStatus('▶ 自定义程序已加载,按 ▶ 开始运行 或 单步 ⤵');
@@ -1346,6 +1360,7 @@ function loadProgramByIdCustom(id){
   if(r.error)return;
   USER_PROG=r.prog;USER_PROG._items=parseProgram(c.src).items;
   PROG=USER_PROG;
+  renderCodePane();               // ★同步代码区显示
   document.getElementById('fileTitle').textContent='📄 '+c.name+'.c (自定义)';
   resetRun();
   setStatus('已加载:'+c.name+',按 ▶ 开始');
@@ -1646,6 +1661,16 @@ function drawArrows(svgId,specs){
 /* ============================================================
  * 代码渲染与控制
  * ============================================================ */
+function renderCodePane(){
+  const cs=document.getElementById('codeScroll');cs.innerHTML='';
+  PROG.steps.forEach((st,idx)=>{
+    const div=document.createElement('div');div.className='code-line';
+    const ln=document.createElement('span');ln.className='ln';ln.textContent=st.code?idx+1:'';
+    const body=document.createElement('span');
+    st.t.forEach(([txt,cls])=>{const s=document.createElement('span');if(cls)s.className=cls;s.textContent=txt;body.appendChild(s);});
+    div.appendChild(ln);div.appendChild(body);cs.appendChild(div);
+  });
+}
 function loadProgram(id){
   /* 编辑器保存的源码型程序 */
   const cu=customProgs.find(c=>c.id===id);
@@ -1654,14 +1679,7 @@ function loadProgram(id){
   if(!p)return;
   PROG=p;
   document.getElementById('fileTitle').textContent='📄 '+progLabel(id)+'.c';
-  const cs=document.getElementById('codeScroll');cs.innerHTML='';
-  PROG.steps.forEach(st=>{
-    const div=document.createElement('div');div.className='code-line';
-    const ln=document.createElement('span');ln.className='ln';ln.textContent=st.code?PROG.steps.indexOf(st)+1:'';
-    const body=document.createElement('span');
-    st.t.forEach(([txt,cls])=>{const s=document.createElement('span');if(cls)s.className=cls;s.textContent=txt;body.appendChild(s);});
-    div.appendChild(ln);div.appendChild(body);cs.appendChild(div);
-  });
+  renderCodePane();
   resetRun();
   setStatus('已加载:'+progLabel(id)+',按 ▶ 开始'); // #9
 }
