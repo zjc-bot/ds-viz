@@ -134,7 +134,24 @@
   #stackCol,#heapCol,#vizCol{position:relative}  /* 让内部SVG箭头层以本栏为定位基准 */
   /* 可拖拽分隔条 */
   .vdrag{width:6px;cursor:col-resize;background:transparent;border-left:1px solid var(--border);flex-shrink:0;transition:background .15s}
-  .vdrag:hover,.vdrag.on{background:var(--accent)}
+  .hdrag{height:6px;cursor:row-resize;background:transparent;border-top:1px solid var(--border);flex-shrink:0;transition:background .15s}
+  .hdrag:hover,.hdrag.on{background:var(--accent)}
+  @media (pointer:coarse){
+    .vdrag{width:16px}
+    .hdrag{height:16px}
+    .btn,.tbtn,select{padding:9px 14px;font-size:14px}
+  }
+  @media (max-width:820px){
+    main{flex-direction:column;overflow:auto}
+    body{overflow:auto;height:auto;min-height:100vh}
+    header{position:sticky;top:0;z-index:100}
+    #codePane{width:100%!important;min-width:0!important;flex:none!important;
+      height:46vh;border-right:none;border-bottom:1px solid var(--border)}
+    #memRow{flex-direction:column;overflow:visible}
+    .col{min-height:38vh;width:100%!important;flex:none!important}
+    .vdrag{display:none}
+    #vizPop{width:94vw!important;height:60vh!important;left:3vw!important}
+  }
   .col h2{
     font-size:13px;font-weight:600;letter-spacing:.4px;color:var(--muted);
     padding-bottom:6px;border-bottom:1px dashed var(--border);margin-bottom:10px;white-space:nowrap;
@@ -1760,23 +1777,31 @@ if(document.getElementById('vizPop')){}
 /* ============================================================
  * 可拖拽分隔条:按住左右拖调整相邻栏宽度
  * ============================================================ */
+function dragEvents(el,onStart){
+  el.style.touchAction='none';
+  el.addEventListener('pointerdown',e=>{
+    e.preventDefault();
+    try{el.setPointerCapture(e.pointerId);}catch(_){}
+    el.classList.add('on');
+    const st=onStart(e);
+    function mv(ev){ev.preventDefault();st.move(ev);}
+    function up(){el.classList.remove('on');
+      el.removeEventListener('pointermove',mv);
+      el.removeEventListener('pointerup',up);
+      el.removeEventListener('pointercancel',up);}
+    el.addEventListener('pointermove',mv);
+    el.addEventListener('pointerup',up);
+    el.addEventListener('pointercancel',up);
+  });
+}
 function makeVDrag(handle,getTarget,setDelta){
   const el=document.getElementById(handle);
-  el.addEventListener('mousedown',e=>{
-    e.preventDefault();
-    el.classList.add('on');
-    let startX=e.clientX;
-    function move(ev){
-      const dx=ev.clientX-startX;startX=ev.clientX;
+  let lastX=0;
+  dragEvents(el,e=>{lastX=e.clientX;return{
+    move:ev=>{const dx=ev.clientX-lastX;lastX=ev.clientX;
       setDelta(getTarget(),dx);
-      drawArrows('memArrows',memArrowSpecs());
-    }
-    function up(){el.classList.remove('on');
-      document.removeEventListener('mousemove',move);
-      document.removeEventListener('mouseup',up);}
-    document.addEventListener('mousemove',move);
-    document.addEventListener('mouseup',up);
-  });
+      drawArrows('memArrows',memArrowSpecs());}
+  }});
 }
 function setW(el,dx){
   let w=el.getBoundingClientRect().width+dx;
@@ -1797,25 +1822,16 @@ makeVDrag('drag1',
 /* 水平拖动条:代码区 ↔ 程序输出(条跟随鼠标,上拖=代码区变矮输出变高) */
 function makeHDrag(handle){
   const el=document.getElementById(handle);
-  el.addEventListener('mousedown',e=>{
-    e.preventDefault();
-    el.classList.add('on');
-    let startY=e.clientY;
-    const cs=document.getElementById('codeScroll'),co=document.getElementById('console');
-    function move(ev){
-      const dy=ev.clientY-startY;startY=ev.clientY;
+  const cs=document.getElementById('codeScroll'),co=document.getElementById('console');
+  let lastY=0;
+  dragEvents(el,e=>{lastY=e.clientY;return{
+    move:ev=>{const dy=ev.clientY-lastY;lastY=ev.clientY;
       let ch=cs.getBoundingClientRect().height+dy;
       const total=cs.parentElement.getBoundingClientRect().height-120;
       ch=Math.max(60,Math.min(ch,total));
       cs.style.flex='none';cs.style.height=ch+'px';
-      co.style.height=Math.max(40,total-ch)+'px';
-    }
-    function up(){el.classList.remove('on');
-      document.removeEventListener('mousemove',move);
-      document.removeEventListener('mouseup',up);}
-    document.addEventListener('mousemove',move);
-    document.addEventListener('mouseup',up);
-  });
+      co.style.height=Math.max(40,total-ch)+'px';}
+  }});
 }
 makeHDrag('dragConsole');
 
@@ -1838,9 +1854,11 @@ document.getElementById('vizPopClose').onclick=()=>toggleVizPop(false);
 /* 弹窗拖动(按住标题栏) */
 (function(){
   const bar=document.getElementById('vizPopBar'),pop=document.getElementById('vizPop');
-  bar.addEventListener('mousedown',e=>{
+  bar.style.touchAction='none';
+  bar.addEventListener('pointerdown',e=>{
     if(e.target.tagName==='BUTTON')return;
     e.preventDefault();
+    bar.setPointerCapture(e.pointerId);
     let sx=e.clientX,sy=e.clientY;
     const r=pop.getBoundingClientRect();
     let ox=r.left,oy=r.top;
@@ -1851,9 +1869,12 @@ document.getElementById('vizPopClose').onclick=()=>toggleVizPop(false);
       ny=Math.max(0,Math.min(ny,window.innerHeight-40));
       pop.style.left=nx+'px';pop.style.top=ny+'px';
     }
-    function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);}
-    document.addEventListener('mousemove',mv);
-    document.addEventListener('mouseup',up);
+    function up(){bar.removeEventListener('pointermove',mv);
+      bar.removeEventListener('pointerup',up);
+      bar.removeEventListener('pointercancel',up);}
+    bar.addEventListener('pointermove',mv);
+    bar.addEventListener('pointerup',up);
+    bar.addEventListener('pointercancel',up);
   });
 })();
 
